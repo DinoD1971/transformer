@@ -28,3 +28,6 @@ TestResults/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code session/config data
+.claude/
