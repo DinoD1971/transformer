@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Json.Path;
 using Microsoft.Extensions.Logging;
 using Transformer.Exceptions;
@@ -9,6 +10,12 @@ namespace Transformer.Services;
 
 public class TransformationEngine : ITransformationEngine
 {
+    private static readonly JsonSerializerOptions ItemMappingDeserializeOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
     private readonly ILogger<TransformationEngine> _logger;
     private readonly TransformRegistry _registry;
     private readonly IConditionEvaluator _conditionEvaluator;
@@ -36,6 +43,15 @@ public class TransformationEngine : ITransformationEngine
                 continue;
 
             var hasDefault = mapping.Default.HasValue && mapping.Default.Value.ValueKind != JsonValueKind.Undefined;
+
+            if (mapping.Type?.Equals("array", StringComparison.OrdinalIgnoreCase) == true
+                && mapping.ItemMapping is not null)
+            {
+                var arrayResult = ApplyArrayMapping(mapping, input, config, mismatchMode);
+                if (arrayResult is not null)
+                    SetNestedValue(output, mapping.Target, arrayResult);
+                continue;
+            }
 
             JsonNode? resolvedValue;
 
@@ -220,6 +236,79 @@ public class TransformationEngine : ITransformationEngine
         }
 
         return JsonNode.Parse(branch.Value.GetRawText());
+    }
+
+    private JsonNode? ApplyArrayMapping(MappingConfig mapping, JsonObject input, TransformConfig config, string mismatchMode)
+    {
+        if (string.IsNullOrEmpty(mapping.Source))
+            return new JsonArray();
+
+        var (found, sourceNode) = ResolveSource(mapping.Source, input);
+
+        if (!found || sourceNode is null)
+        {
+            _logger.LogWarning("Array source '{Source}' matched no value — writing empty array.", mapping.Source);
+            return new JsonArray();
+        }
+
+        if (sourceNode is not JsonArray sourceArray)
+        {
+            return mismatchMode.ToLowerInvariant() switch
+            {
+                "error" => throw new TransformationException(
+                    $"Type mismatch on target '{mapping.Target}': expected array, got non-array value."),
+                "null" => null,
+                _ => LogCoercionAndReturnNull(mapping.Target, "expected array, got non-array value")
+            };
+        }
+
+        var itemMappings = BuildItemMappings(mapping.ItemMapping!);
+        var itemConfig = new TransformConfig
+        {
+            Mappings = itemMappings,
+            Settings = config.Settings,
+            ErrorHandling = config.ErrorHandling
+        };
+
+        var result = new JsonArray();
+        foreach (var item in sourceArray)
+        {
+            if (item is not JsonObject itemObj)
+                throw new TransformationException(
+                    $"Array item in '{mapping.Source}' is not a JSON object and cannot be mapped with itemMapping.");
+
+            result.Add(Transform(itemObj, itemConfig));
+        }
+
+        return result;
+    }
+
+    private static List<MappingConfig> BuildItemMappings(Dictionary<string, JsonElement> itemMapping)
+    {
+        var mappings = new List<MappingConfig>(itemMapping.Count);
+
+        foreach (var (key, element) in itemMapping)
+        {
+            MappingConfig mc;
+
+            if (element.ValueKind == JsonValueKind.String)
+            {
+                mc = new MappingConfig { Source = element.GetString() };
+            }
+            else if (element.ValueKind == JsonValueKind.Object)
+            {
+                mc = JsonSerializer.Deserialize<MappingConfig>(element.GetRawText(), ItemMappingDeserializeOptions)!;
+            }
+            else
+            {
+                continue;
+            }
+
+            mc.Target = key;
+            mappings.Add(mc);
+        }
+
+        return mappings;
     }
 
     private (bool found, JsonNode? value) ResolveSource(string sourcePath, JsonNode input)

@@ -626,4 +626,106 @@ public class TransformationEngineTests
 
         Assert.Equal(10m, result["total"]?.GetValue<decimal>());
     }
+
+    // --- array transformation ---
+
+    private static MappingConfig ArrayMappingConfig(
+        string source, string target,
+        Dictionary<string, JsonElement> itemMapping,
+        string? onTypeMismatch = null) =>
+        new()
+        {
+            Source = source,
+            Target = target,
+            Type = "array",
+            ItemMapping = itemMapping
+        };
+
+    private static TransformConfig ArrayConfig(
+        string source, string target,
+        Dictionary<string, JsonElement> itemMapping,
+        string? onTypeMismatch = null) =>
+        new()
+        {
+            Mappings = [ArrayMappingConfig(source, target, itemMapping)],
+            ErrorHandling = onTypeMismatch is null ? null : new ErrorHandlingConfig { OnTypeMismatch = onTypeMismatch }
+        };
+
+    private static JsonElement StrEl(string s) => JsonDocument.Parse($"\"{s}\"").RootElement;
+    private static JsonElement ObjEl(string json) => JsonDocument.Parse(json).RootElement;
+
+    [Fact]
+    public void Transform_Array_SimpleItemMapping_MapsEachItem()
+    {
+        var input = ParseInput("""{"items":[{"sku":"A","name":"Widget"},{"sku":"B","name":"Gadget"}]}""");
+        var config = ArrayConfig("$.items", "products",
+            new() { ["sku"] = StrEl("$.sku"), ["name"] = StrEl("$.name") });
+
+        var result = _engine.Transform(input, config);
+
+        var products = result["products"]!.AsArray();
+        Assert.Equal(2, products.Count);
+        Assert.Equal("A", products[0]!["sku"]?.GetValue<string>());
+        Assert.Equal("Widget", products[0]!["name"]?.GetValue<string>());
+        Assert.Equal("B", products[1]!["sku"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Array_ArithmeticExpression_ComputesLineTotal()
+    {
+        var input = ParseInput("""{"items":[{"qty":3,"price":9.99},{"qty":1,"price":4.50}]}""");
+        var config = ArrayConfig("$.items", "lines",
+            new()
+            {
+                ["qty"] = StrEl("$.qty"),
+                ["lineTotal"] = ObjEl("""{"expression":"$.qty * $.price","type":"decimal"}""")
+            });
+
+        var result = _engine.Transform(input, config);
+
+        var lines = result["lines"]!.AsArray();
+        Assert.Equal(29.97m, lines[0]!["lineTotal"]?.GetValue<decimal>());
+        Assert.Equal(4.50m, lines[1]!["lineTotal"]?.GetValue<decimal>());
+    }
+
+    [Fact]
+    public void Transform_Array_NestedTargetPath_CreatesNestedObjectPerItem()
+    {
+        var input = ParseInput("""{"items":[{"n":"Alice","e":"a@x.com"}]}""");
+        var config = ArrayConfig("$.items", "people",
+            new() { ["contact.name"] = StrEl("$.n"), ["contact.email"] = StrEl("$.e") });
+
+        var result = _engine.Transform(input, config);
+
+        var person = result["people"]!.AsArray()[0]!.AsObject();
+        var contact = person["contact"]!.AsObject();
+        Assert.Equal("Alice", contact["name"]?.GetValue<string>());
+        Assert.Equal("a@x.com", contact["email"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Array_EmptySource_WritesEmptyArray()
+    {
+        var input = ParseInput("""{"items":[]}""");
+        var config = ArrayConfig("$.items", "products",
+            new() { ["sku"] = StrEl("$.sku") });
+
+        var result = _engine.Transform(input, config);
+
+        var products = result["products"]!.AsArray();
+        Assert.Empty(products);
+    }
+
+    [Fact]
+    public void Transform_Array_NonArraySource_OnTypeMismatchError_Throws()
+    {
+        var input = ParseInput("""{"items":"not-an-array"}""");
+        var config = new TransformConfig
+        {
+            Mappings = [ArrayMappingConfig("$.items", "products", new() { ["sku"] = StrEl("$.sku") })],
+            ErrorHandling = new ErrorHandlingConfig { OnTypeMismatch = "error" }
+        };
+
+        Assert.Throws<TransformationException>(() => _engine.Transform(input, config));
+    }
 }
