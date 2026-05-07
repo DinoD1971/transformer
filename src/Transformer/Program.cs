@@ -5,6 +5,7 @@ using Microsoft.Azure.Functions.Worker.OpenTelemetry;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
+using Transformer.Services;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -14,7 +15,6 @@ builder.Services.AddOpenTelemetry()
     .UseFunctionsWorkerDefaults()
     .UseAzureMonitorExporter();
 
-// Register application services here
-// e.g. builder.Services.AddSingleton<ITransformationService, TransformationService>();
+builder.Services.AddSingleton<IConfigLoader, ConfigLoader>();
 
 builder.Build().Run();
