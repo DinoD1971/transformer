@@ -22,6 +22,7 @@ public class TransformationEngine : ITransformationEngine
     {
         var output = new JsonObject();
         var mismatchMode = config.ErrorHandling?.OnTypeMismatch ?? "coerce";
+        var missingFieldMode = config.ErrorHandling?.OnMissingField ?? "ignore";
         var dateFormat = config.Settings?.DateFormat;
 
         foreach (var mapping in config.Mappings)
@@ -57,7 +58,8 @@ public class TransformationEngine : ITransformationEngine
             }
 
             var afterType = resolvedValue is null ? null : ApplyType(resolvedValue.DeepClone(), mapping, mismatchMode, dateFormat);
-            var afterTransform = ApplyTransform(afterType, mapping, dateFormat);
+            var afterLookup = ApplyLookup(afterType, mapping, missingFieldMode);
+            var afterTransform = ApplyTransform(afterLookup, mapping, dateFormat);
             var finalValue = ApplyValidation(afterTransform, mapping);
 
             SetNestedValue(output, mapping.Target, finalValue);
@@ -85,6 +87,31 @@ public class TransformationEngine : ITransformationEngine
             "null" => null,
             _ => LogCoercionAndReturnNull(mapping.Target, result.ErrorMessage)
         };
+    }
+
+    private JsonNode? ApplyLookup(JsonNode? value, MappingConfig mapping, string missingFieldMode)
+    {
+        if (mapping.Lookup is null || mapping.Lookup.Count == 0 || value is null)
+            return value;
+
+        var key = value is JsonValue jv && jv.TryGetValue<string>(out var s) ? s : value.ToJsonString();
+
+        if (mapping.Lookup.TryGetValue(key, out var mapped))
+            return JsonValue.Create(mapped);
+
+        return missingFieldMode.ToLowerInvariant() switch
+        {
+            "error" => throw new TransformationException(
+                $"Lookup failed for target '{mapping.Target}': value '{key}' has no matching entry."),
+            "null" => LogLookupMissAndReturnNull(mapping.Target, key),
+            _ => value
+        };
+    }
+
+    private JsonNode? LogLookupMissAndReturnNull(string target, string key)
+    {
+        _logger.LogWarning("Lookup miss for target '{Target}': value '{Key}' has no matching entry — writing null.", target, key);
+        return null;
     }
 
     private JsonNode? ApplyTransform(JsonNode? value, MappingConfig mapping, string? dateFormat)
