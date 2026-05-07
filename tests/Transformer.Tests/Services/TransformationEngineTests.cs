@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Transformer.Exceptions;
 using Transformer.Models;
 using Transformer.Services;
 
@@ -23,6 +24,13 @@ public class TransformationEngineTests
         new()
         {
             Mappings = mappings.Select(m => new MappingConfig { Source = m.source, Target = m.target }).ToList()
+        };
+
+    private static TransformConfig TypedConfig(string source, string target, string type, string? mismatchMode = null) =>
+        new()
+        {
+            Mappings = [new MappingConfig { Source = source, Target = target, Type = type }],
+            ErrorHandling = mismatchMode is null ? null : new ErrorHandlingConfig { OnTypeMismatch = mismatchMode }
         };
 
     [Fact]
@@ -72,5 +80,51 @@ public class TransformationEngineTests
         var shipping = result["shipping"]?.AsObject();
         var address = shipping?["address"]?.AsObject();
         Assert.Equal("123 Main St", address?["line1"]?.GetValue<string>());
+    }
+
+    // --- type conversion + onTypeMismatch modes ---
+
+    [Fact]
+    public void Transform_TypeConversion_HappyPath_WritesConvertedValue()
+    {
+        var input = ParseInput("""{"amount":"49.99"}""");
+        var config = TypedConfig("$.amount", "total", "decimal");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal(49.99m, result["total"]?.GetValue<decimal>());
+    }
+
+    [Fact]
+    public void Transform_OnTypeMismatch_Error_ThrowsTransformationException()
+    {
+        var input = ParseInput("""{"amount":"not-a-number"}""");
+        var config = TypedConfig("$.amount", "total", "decimal", "error");
+
+        Assert.Throws<TransformationException>(() => _engine.Transform(input, config));
+    }
+
+    [Fact]
+    public void Transform_OnTypeMismatch_Null_WritesNullToTarget()
+    {
+        var input = ParseInput("""{"amount":"not-a-number"}""");
+        var config = TypedConfig("$.amount", "total", "decimal", "null");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("total"));
+        Assert.Null(result["total"]);
+    }
+
+    [Fact]
+    public void Transform_OnTypeMismatch_Coerce_WritesNullToTarget()
+    {
+        var input = ParseInput("""{"amount":"not-a-number"}""");
+        var config = TypedConfig("$.amount", "total", "decimal", "coerce");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("total"));
+        Assert.Null(result["total"]);
     }
 }
