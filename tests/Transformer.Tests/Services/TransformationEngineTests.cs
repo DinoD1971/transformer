@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -126,5 +127,101 @@ public class TransformationEngineTests
 
         Assert.True(result.ContainsKey("total"));
         Assert.Null(result["total"]);
+    }
+
+    // --- default values ---
+
+    [Fact]
+    public void Transform_Default_SourceMissing_UsesDefault()
+    {
+        var input = ParseInput("""{"id":"1"}""");
+        var config = new TransformConfig
+        {
+            Mappings =
+            [
+                new MappingConfig { Source = "$.currency", Target = "currency", Default = JsonDocument.Parse("\"USD\"").RootElement }
+            ]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("USD", result["currency"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Default_SourceNull_UsesDefault()
+    {
+        var input = ParseInput("""{"currency":null}""");
+        var config = new TransformConfig
+        {
+            Mappings =
+            [
+                new MappingConfig { Source = "$.currency", Target = "currency", Default = JsonDocument.Parse("\"USD\"").RootElement }
+            ]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("USD", result["currency"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Default_WithTypeConversion_ConvertsDefault()
+    {
+        var input = ParseInput("""{"id":"1"}""");
+        var config = new TransformConfig
+        {
+            Mappings =
+            [
+                new MappingConfig { Source = "$.price", Target = "price", Type = "decimal", Default = JsonDocument.Parse("\"99\"").RootElement }
+            ]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal(99m, result["price"]?.GetValue<decimal>());
+    }
+
+    // --- ignoreNulls ---
+
+    [Fact]
+    public void Transform_IgnoreNulls_True_OmitsNullFields()
+    {
+        var input = ParseInput("""{"id":"1","note":null}""");
+        var config = new TransformConfig
+        {
+            Settings = new TransformSettings { IgnoreNulls = true },
+            Mappings =
+            [
+                new MappingConfig { Source = "$.id", Target = "id" },
+                new MappingConfig { Source = "$.note", Target = "note" }
+            ]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("id"));
+        Assert.False(result.ContainsKey("note"));
+    }
+
+    [Fact]
+    public void Transform_IgnoreNulls_False_WritesNullFields()
+    {
+        var input = ParseInput("""{"id":"1","note":null}""");
+        var config = new TransformConfig
+        {
+            Settings = new TransformSettings { IgnoreNulls = false },
+            Mappings =
+            [
+                new MappingConfig { Source = "$.id", Target = "id" },
+                new MappingConfig { Source = "$.note", Target = "note" }
+            ]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("id"));
+        Assert.True(result.ContainsKey("note"));
+        Assert.Null(result["note"]);
     }
 }

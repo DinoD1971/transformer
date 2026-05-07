@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Json.Path;
 using Microsoft.Extensions.Logging;
@@ -23,22 +24,43 @@ public class TransformationEngine : ITransformationEngine
 
         foreach (var mapping in config.Mappings)
         {
-            if (string.IsNullOrEmpty(mapping.Source) || string.IsNullOrEmpty(mapping.Target))
+            if (string.IsNullOrEmpty(mapping.Target))
                 continue;
 
-            var value = ResolveSource(mapping.Source, input);
-            if (value is null)
+            var hasDefault = mapping.Default.HasValue && mapping.Default.Value.ValueKind != JsonValueKind.Undefined;
+
+            bool sourceFound = false;
+            JsonNode? value = null;
+
+            if (!string.IsNullOrEmpty(mapping.Source))
+                (sourceFound, value) = ResolveSource(mapping.Source, input);
+
+            JsonNode? resolvedValue;
+            if (sourceFound && value is not null)
             {
-                _logger.LogWarning("Source path '{Source}' matched no value — field omitted.", mapping.Source);
+                resolvedValue = value;
+            }
+            else if (hasDefault)
+            {
+                resolvedValue = JsonNode.Parse(mapping.Default!.Value.GetRawText());
+            }
+            else if (sourceFound)
+            {
+                // matched a JSON null with no default — write null, ignoreNulls handles later
+                resolvedValue = null;
+            }
+            else
+            {
+                _logger.LogWarning("Source path '{Source}' matched no value and no default — field omitted.", mapping.Source);
                 continue;
             }
 
-            var finalValue = ApplyType(value.DeepClone(), mapping, mismatchMode, dateFormat);
-            if (finalValue is null && string.Equals(mismatchMode, "error", StringComparison.OrdinalIgnoreCase))
-                continue; // already threw above; this path is unreachable
-
+            var finalValue = resolvedValue is null ? null : ApplyType(resolvedValue.DeepClone(), mapping, mismatchMode, dateFormat);
             SetNestedValue(output, mapping.Target, finalValue);
         }
+
+        if (config.Settings?.IgnoreNulls == true)
+            RemoveNullFields(output);
 
         return output;
     }
@@ -67,7 +89,7 @@ public class TransformationEngine : ITransformationEngine
         return null;
     }
 
-    private JsonNode? ResolveSource(string sourcePath, JsonNode input)
+    private (bool found, JsonNode? value) ResolveSource(string sourcePath, JsonNode input)
     {
         JsonPath path;
         try
@@ -80,7 +102,8 @@ public class TransformationEngine : ITransformationEngine
         }
 
         var result = path.Evaluate(input);
-        return result.Matches.FirstOrDefault()?.Value;
+        var match = result.Matches.FirstOrDefault();
+        return match is null ? (false, null) : (true, match.Value);
     }
 
     private static void SetNestedValue(JsonObject obj, string dotPath, JsonNode? value)
@@ -99,5 +122,18 @@ public class TransformationEngine : ITransformationEngine
         }
 
         current[parts[^1]] = value;
+    }
+
+    private static void RemoveNullFields(JsonObject obj)
+    {
+        var nullKeys = obj.Where(kv => kv.Value is null).Select(kv => kv.Key).ToList();
+        foreach (var key in nullKeys)
+            obj.Remove(key);
+
+        foreach (var kv in obj)
+        {
+            if (kv.Value is JsonObject nested)
+                RemoveNullFields(nested);
+        }
     }
 }
