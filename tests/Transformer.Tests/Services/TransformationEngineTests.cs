@@ -728,4 +728,109 @@ public class TransformationEngineTests
 
         Assert.Throws<TransformationException>(() => _engine.Transform(input, config));
     }
+
+    // --- static value injection ---
+
+    private static TransformConfig StaticValueConfig(string target, string valueJson, string? type = null) =>
+        new()
+        {
+            Mappings =
+            [
+                new MappingConfig
+                {
+                    Target = target,
+                    Type = type,
+                    Value = JsonDocument.Parse(valueJson).RootElement
+                }
+            ]
+        };
+
+    [Fact]
+    public void Transform_StaticValue_StringLiteral_WritesValue()
+    {
+        var input = ParseInput("{}");
+        var config = StaticValueConfig("sourceSystem", "\"Shopify\"");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("Shopify", result["sourceSystem"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_StaticValue_NumericLiteral_WritesValue()
+    {
+        var input = ParseInput("{}");
+        var config = StaticValueConfig("version", "42");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal(42m, result["version"]?.GetValue<decimal>());
+    }
+
+    [Fact]
+    public void Transform_StaticValue_BooleanLiteral_WritesValue()
+    {
+        var input = ParseInput("{}");
+        var config = StaticValueConfig("active", "true");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result["active"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public void Transform_StaticValue_NullLiteral_WritesNull()
+    {
+        var input = ParseInput("{}");
+        var config = StaticValueConfig("note", "null");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("note"));
+        Assert.Null(result["note"]);
+    }
+
+    [Fact]
+    public void Transform_StaticValue_WithTypeConversion_ConvertsValue()
+    {
+        var input = ParseInput("{}");
+        var config = StaticValueConfig("amount", "\"99\"", type: "decimal");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal(99m, result["amount"]?.GetValue<decimal>());
+    }
+
+    [Fact]
+    public void Transform_StaticValue_NestedTargetPath_WritesAtDepth()
+    {
+        var input = ParseInput("{}");
+        var config = StaticValueConfig("metadata.sourceSystem", "\"Shopify\"");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("Shopify", result["metadata"]?["sourceSystem"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_StaticValue_TakesPrecedenceOverSource()
+    {
+        var input = ParseInput("""{"name":"from-source"}""");
+        var config = new TransformConfig
+        {
+            Mappings =
+            [
+                new MappingConfig
+                {
+                    Source = "$.name",
+                    Target = "name",
+                    Value = JsonDocument.Parse("\"static\"").RootElement
+                }
+            ]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("static", result["name"]?.GetValue<string>());
+    }
 }
