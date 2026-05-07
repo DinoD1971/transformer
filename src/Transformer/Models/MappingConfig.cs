@@ -14,4 +14,5 @@ public class MappingConfig
     public Dictionary<string, string>? Lookup { get; set; }
     public ConditionConfig? Condition { get; set; }
     public string? Expression { get; set; }
+    public Dictionary<string, JsonElement>? ItemMapping { get; set; }
 }
