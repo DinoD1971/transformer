@@ -20,14 +20,17 @@ public class TransformationEngine : ITransformationEngine
     private readonly TransformRegistry _registry;
     private readonly IConditionEvaluator _conditionEvaluator;
     private readonly IExpressionEvaluator _expressionEvaluator;
+    private readonly PostProcessingRegistry _postProcessingRegistry;
 
     public TransformationEngine(ILogger<TransformationEngine> logger, TransformRegistry registry,
-        IConditionEvaluator conditionEvaluator, IExpressionEvaluator expressionEvaluator)
+        IConditionEvaluator conditionEvaluator, IExpressionEvaluator expressionEvaluator,
+        PostProcessingRegistry postProcessingRegistry)
     {
         _logger = logger;
         _registry = registry;
         _conditionEvaluator = conditionEvaluator;
         _expressionEvaluator = expressionEvaluator;
+        _postProcessingRegistry = postProcessingRegistry;
     }
 
     public JsonObject Transform(JsonObject input, TransformConfig config)
@@ -125,6 +128,12 @@ public class TransformationEngine : ITransformationEngine
 
         if (config.Settings?.IgnoreNulls == true)
             RemoveNullFields(output);
+
+        foreach (var step in config.PostProcessing)
+        {
+            if (string.IsNullOrEmpty(step.Type)) continue;
+            _postProcessingRegistry.Resolve(step.Type).Execute(output, step);
+        }
 
         return output;
     }

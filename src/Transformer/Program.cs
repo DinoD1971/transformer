@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
 using Transformer.Services;
+using Transformer.Services.PostProcessing;
 using Transformer.Services.TransformFunctions;
 
 var builder = FunctionsApplication.CreateBuilder(args);
@@ -19,6 +20,11 @@ builder.Services.AddOpenTelemetry()
 builder.Services.AddSingleton<IConfigLoader, ConfigLoader>();
 builder.Services.AddSingleton<IConditionEvaluator, ConditionEvaluator>();
 builder.Services.AddSingleton<IExpressionEvaluator, ExpressionEvaluator>();
+builder.Services.AddSingleton(_ => new PostProcessingRegistry(
+[
+    ("removeEmptyObjects", new RemoveEmptyObjectsStep()),
+    ("sortArray",          new SortArrayStep())
+]));
 builder.Services.AddSingleton(_ => new TransformRegistry(
 [
     ("trim",     new TrimTransformFunction()),
