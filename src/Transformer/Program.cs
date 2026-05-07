@@ -18,6 +18,7 @@ builder.Services.AddOpenTelemetry()
 
 builder.Services.AddSingleton<IConfigLoader, ConfigLoader>();
 builder.Services.AddSingleton<IConditionEvaluator, ConditionEvaluator>();
+builder.Services.AddSingleton<IExpressionEvaluator, ExpressionEvaluator>();
 builder.Services.AddSingleton(_ => new TransformRegistry(
 [
     ("trim",     new TrimTransformFunction()),

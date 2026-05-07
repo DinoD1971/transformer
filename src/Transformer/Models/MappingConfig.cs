@@ -13,4 +13,5 @@ public class MappingConfig
     public ValidationConfig? Validate { get; set; }
     public Dictionary<string, string>? Lookup { get; set; }
     public ConditionConfig? Condition { get; set; }
+    public string? Expression { get; set; }
 }
