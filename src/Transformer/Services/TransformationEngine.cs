@@ -10,10 +10,12 @@ namespace Transformer.Services;
 public class TransformationEngine : ITransformationEngine
 {
     private readonly ILogger<TransformationEngine> _logger;
+    private readonly TransformRegistry _registry;
 
-    public TransformationEngine(ILogger<TransformationEngine> logger)
+    public TransformationEngine(ILogger<TransformationEngine> logger, TransformRegistry registry)
     {
         _logger = logger;
+        _registry = registry;
     }
 
     public JsonObject Transform(JsonObject input, TransformConfig config)
@@ -46,7 +48,6 @@ public class TransformationEngine : ITransformationEngine
             }
             else if (sourceFound)
             {
-                // matched a JSON null with no default — write null, ignoreNulls handles later
                 resolvedValue = null;
             }
             else
@@ -55,7 +56,9 @@ public class TransformationEngine : ITransformationEngine
                 continue;
             }
 
-            var finalValue = resolvedValue is null ? null : ApplyType(resolvedValue.DeepClone(), mapping, mismatchMode, dateFormat);
+            var afterType = resolvedValue is null ? null : ApplyType(resolvedValue.DeepClone(), mapping, mismatchMode, dateFormat);
+            var finalValue = ApplyTransform(afterType, mapping, dateFormat);
+
             SetNestedValue(output, mapping.Target, finalValue);
         }
 
@@ -81,6 +84,15 @@ public class TransformationEngine : ITransformationEngine
             "null" => null,
             _ => LogCoercionAndReturnNull(mapping.Target, result.ErrorMessage)
         };
+    }
+
+    private JsonNode? ApplyTransform(JsonNode? value, MappingConfig mapping, string? dateFormat)
+    {
+        if (string.IsNullOrEmpty(mapping.Transform))
+            return value;
+
+        var fn = _registry.Resolve(mapping.Transform);
+        return fn.Execute(value, mapping.Parameters, dateFormat);
     }
 
     private JsonNode? LogCoercionAndReturnNull(string target, string? errorMessage)

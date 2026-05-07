@@ -8,4 +8,6 @@ public class MappingConfig
     public string Target { get; set; } = string.Empty;
     public string? Type { get; set; }
     public JsonElement? Default { get; set; }
+    public string? Transform { get; set; }
+    public JsonElement? Parameters { get; set; }
 }

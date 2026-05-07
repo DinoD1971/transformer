@@ -5,6 +5,7 @@ using Moq;
 using Transformer.Exceptions;
 using Transformer.Models;
 using Transformer.Services;
+using Transformer.Services.TransformFunctions;
 
 namespace Transformer.Tests.Services;
 
@@ -12,10 +13,18 @@ public class TransformationEngineTests
 {
     private readonly TransformationEngine _engine;
 
+    private static TransformRegistry BuildRegistry() => new(
+    [
+        ("trim",     new TrimTransformFunction()),
+        ("round",    new RoundTransformFunction()),
+        ("contains", new ContainsTransformFunction()),
+        ("now",      new NowTransformFunction())
+    ]);
+
     public TransformationEngineTests()
     {
         var logger = new Mock<ILogger<TransformationEngine>>();
-        _engine = new TransformationEngine(logger.Object);
+        _engine = new TransformationEngine(logger.Object, BuildRegistry());
     }
 
     private static JsonObject ParseInput(string json) =>
@@ -223,5 +232,33 @@ public class TransformationEngineTests
         Assert.True(result.ContainsKey("id"));
         Assert.True(result.ContainsKey("note"));
         Assert.Null(result["note"]);
+    }
+
+    // --- transform functions via engine ---
+
+    [Fact]
+    public void Transform_TrimFunction_TrimsValue()
+    {
+        var input = ParseInput("""{"name":"  Alice  "}""");
+        var config = new TransformConfig
+        {
+            Mappings = [new MappingConfig { Source = "$.name", Target = "name", Transform = "trim" }]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("Alice", result["name"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_UnknownTransformName_ThrowsTransformationException()
+    {
+        var input = ParseInput("""{"x":"1"}""");
+        var config = new TransformConfig
+        {
+            Mappings = [new MappingConfig { Source = "$.x", Target = "x", Transform = "nonexistent" }]
+        };
+
+        Assert.Throws<TransformationException>(() => _engine.Transform(input, config));
     }
 }
