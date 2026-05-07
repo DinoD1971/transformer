@@ -4,7 +4,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
+using Transformer.Exceptions;
 using Transformer.Models;
+using Transformer.Services;
 
 namespace Transformer.Functions;
 
@@ -18,10 +20,12 @@ public class TransformFunction
     };
 
     private readonly ILogger<TransformFunction> _logger;
+    private readonly IConfigLoader _configLoader;
 
-    public TransformFunction(ILogger<TransformFunction> logger)
+    public TransformFunction(ILogger<TransformFunction> logger, IConfigLoader configLoader)
     {
         _logger = logger;
+        _configLoader = configLoader;
     }
 
     [Function("Transform")]
@@ -67,6 +71,29 @@ public class TransformFunction
         _logger.LogInformation("Transform request received. CorrelationId={CorrelationId} Domain={Domain} Operation={Operation} ConfigName={ConfigName}",
             envelope.CorrelationId, domain, operation, configName);
 
+        try
+        {
+            await _configLoader.LoadAsync(domain, operation, configName, cancellationToken);
+        }
+        catch (ConfigNotFoundException ex)
+        {
+            _logger.LogWarning(ex, "Config not found. CorrelationId={CorrelationId}", envelope.CorrelationId);
+            return ProblemResult(404,
+                "https://transformer/errors/config-not-found",
+                "Configuration Not Found",
+                ex.Message,
+                envelope.CorrelationId);
+        }
+        catch (ConfigParseException ex)
+        {
+            _logger.LogError(ex, "Config parse failure. CorrelationId={CorrelationId}", envelope.CorrelationId);
+            return ProblemResult(500,
+                "https://transformer/errors/config-parse-error",
+                "Configuration Parse Error",
+                ex.Message,
+                envelope.CorrelationId);
+        }
+
         var response = new TransformResponse
         {
             CorrelationId = envelope.CorrelationId,
@@ -93,14 +120,15 @@ public class TransformFunction
         (contentType.Equals("application/json", StringComparison.OrdinalIgnoreCase) ||
          contentType.StartsWith("application/json;", StringComparison.OrdinalIgnoreCase));
 
-    private static ContentResult ProblemResult(int status, string type, string title, string detail)
+    private static ContentResult ProblemResult(int status, string type, string title, string detail, string? correlationId = null)
     {
         var problem = new
         {
             type,
             title,
             status,
-            detail
+            detail,
+            correlationId
         };
         return new ContentResult
         {

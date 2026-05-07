@@ -4,18 +4,26 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Transformer.Exceptions;
 using Transformer.Functions;
+using Transformer.Models;
+using Transformer.Services;
 
 namespace Transformer.Tests.Functions;
 
 public class TransformFunctionTests
 {
+    private readonly Mock<IConfigLoader> _configLoaderMock;
     private readonly TransformFunction _function;
 
     public TransformFunctionTests()
     {
         var logger = new Mock<ILogger<TransformFunction>>();
-        _function = new TransformFunction(logger.Object);
+        _configLoaderMock = new Mock<IConfigLoader>();
+        _configLoaderMock
+            .Setup(x => x.LoadAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TransformConfig { Version = "1.0" });
+        _function = new TransformFunction(logger.Object, _configLoaderMock.Object);
     }
 
     private static HttpRequest BuildRequest(string contentType, string? body)
@@ -81,5 +89,47 @@ public class TransformFunctionTests
         var doc = JsonDocument.Parse(content.Content!);
         Assert.Equal(415, doc.RootElement.GetProperty("status").GetInt32());
         Assert.Equal("https://transformer/errors/unsupported-media-type", doc.RootElement.GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task RunAsync_ConfigNotFound_Returns404()
+    {
+        _configLoaderMock
+            .Setup(x => x.LoadAsync("crm", "order", "missing", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConfigNotFoundException("crm", "order", "missing"));
+
+        var body = """{"correlationId":"abc","payload":{}}""";
+        var req = BuildRequest("application/json", body);
+
+        var result = await _function.RunAsync(req, "crm", "order", "missing", CancellationToken.None);
+
+        var content = Assert.IsType<ContentResult>(result);
+        Assert.Equal(404, content.StatusCode);
+
+        var doc = JsonDocument.Parse(content.Content!);
+        Assert.Equal(404, doc.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("https://transformer/errors/config-not-found", doc.RootElement.GetProperty("type").GetString());
+        Assert.Equal("abc", doc.RootElement.GetProperty("correlationId").GetString());
+    }
+
+    [Fact]
+    public async Task RunAsync_ConfigParseError_Returns500()
+    {
+        _configLoaderMock
+            .Setup(x => x.LoadAsync("crm", "order", "broken", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConfigParseException("crm", "order", "broken", "Unexpected token."));
+
+        var body = """{"correlationId":"xyz","payload":{}}""";
+        var req = BuildRequest("application/json", body);
+
+        var result = await _function.RunAsync(req, "crm", "order", "broken", CancellationToken.None);
+
+        var content = Assert.IsType<ContentResult>(result);
+        Assert.Equal(500, content.StatusCode);
+
+        var doc = JsonDocument.Parse(content.Content!);
+        Assert.Equal(500, doc.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("https://transformer/errors/config-parse-error", doc.RootElement.GetProperty("type").GetString());
+        Assert.Equal("xyz", doc.RootElement.GetProperty("correlationId").GetString());
     }
 }
