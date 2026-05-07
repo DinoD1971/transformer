@@ -17,6 +17,7 @@ builder.Services.AddOpenTelemetry()
     .UseAzureMonitorExporter();
 
 builder.Services.AddSingleton<IConfigLoader, ConfigLoader>();
+builder.Services.AddSingleton<IConditionEvaluator, ConditionEvaluator>();
 builder.Services.AddSingleton(_ => new TransformRegistry(
 [
     ("trim",     new TrimTransformFunction()),

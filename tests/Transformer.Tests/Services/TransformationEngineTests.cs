@@ -24,7 +24,8 @@ public class TransformationEngineTests
     public TransformationEngineTests()
     {
         var logger = new Mock<ILogger<TransformationEngine>>();
-        _engine = new TransformationEngine(logger.Object, BuildRegistry());
+        var conditionLogger = new Mock<ILogger<ConditionEvaluator>>();
+        _engine = new TransformationEngine(logger.Object, BuildRegistry(), new ConditionEvaluator(conditionLogger.Object));
     }
 
     private static JsonObject ParseInput(string json) =>
@@ -414,5 +415,119 @@ public class TransformationEngineTests
 
         Assert.True(result.ContainsKey("status"));
         Assert.Null(result["status"]);
+    }
+
+    // --- conditional logic ---
+
+    private static TransformConfig ConditionMappingConfig(string ifExpr, string? thenJson, string? elseJson, string? type = null) =>
+        new()
+        {
+            Mappings =
+            [
+                new MappingConfig
+                {
+                    Target = "result",
+                    Type = type,
+                    Condition = new Transformer.Models.ConditionConfig
+                    {
+                        If = ifExpr,
+                        Then = thenJson is null ? null : JsonDocument.Parse(thenJson).RootElement,
+                        Else = elseJson is null ? null : JsonDocument.Parse(elseJson).RootElement
+                    }
+                }
+            ]
+        };
+
+    [Fact]
+    public void Transform_Condition_TrueBranch_WritesLiteralThenValue()
+    {
+        var input = ParseInput("""{"total":1500}""");
+        var config = ConditionMappingConfig("$.total > 1000", "\"high\"", "\"low\"");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("high", result["result"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Condition_FalseBranch_WritesLiteralElseValue()
+    {
+        var input = ParseInput("""{"total":500}""");
+        var config = ConditionMappingConfig("$.total > 1000", "\"high\"", "\"low\"");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("low", result["result"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Condition_ThenIsJsonPath_ResolvesValue()
+    {
+        var input = ParseInput("""{"discount":{"amount":10.0},"flag":true}""");
+        var config = ConditionMappingConfig("$.flag == true", "\"$.discount.amount\"", "\"0\"");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.NotNull(result["result"]);
+        Assert.Equal(10.0, result["result"]!.GetValue<double>(), precision: 5);
+    }
+
+    [Fact]
+    public void Transform_Condition_ElseIsJsonPath_ResolvesValue()
+    {
+        var input = ParseInput("""{"discount":{"amount":10.0},"flag":false}""");
+        var config = ConditionMappingConfig("$.flag == true", "\"$.discount.amount\"", "\"0\"");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("0", result["result"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Condition_WithTypeConversion_ConvertsSelectedBranch()
+    {
+        var input = ParseInput("""{"total":1500}""");
+        var config = ConditionMappingConfig("$.total > 1000", "\"99.5\"", "\"0\"", type: "decimal");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal(99.5m, result["result"]?.GetValue<decimal>());
+    }
+
+    [Fact]
+    public void Transform_Condition_SourceFieldIgnored()
+    {
+        var input = ParseInput("""{"total":1500,"ignored":"should-not-appear"}""");
+        var config = new TransformConfig
+        {
+            Mappings =
+            [
+                new MappingConfig
+                {
+                    Source = "$.ignored",
+                    Target = "result",
+                    Condition = new Transformer.Models.ConditionConfig
+                    {
+                        If = "$.total > 1000",
+                        Then = JsonDocument.Parse("\"high\"").RootElement
+                    }
+                }
+            ]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("high", result["result"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Condition_NestedObjectSource_Evaluates()
+    {
+        var input = ParseInput("""{"order":{"total":2000}}""");
+        var config = ConditionMappingConfig("$.order.total >= 1000", "\"premium\"", "\"standard\"");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("premium", result["result"]?.GetValue<string>());
     }
 }

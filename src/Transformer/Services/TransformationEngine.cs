@@ -11,11 +11,13 @@ public class TransformationEngine : ITransformationEngine
 {
     private readonly ILogger<TransformationEngine> _logger;
     private readonly TransformRegistry _registry;
+    private readonly IConditionEvaluator _conditionEvaluator;
 
-    public TransformationEngine(ILogger<TransformationEngine> logger, TransformRegistry registry)
+    public TransformationEngine(ILogger<TransformationEngine> logger, TransformRegistry registry, IConditionEvaluator conditionEvaluator)
     {
         _logger = logger;
         _registry = registry;
+        _conditionEvaluator = conditionEvaluator;
     }
 
     public JsonObject Transform(JsonObject input, TransformConfig config)
@@ -32,29 +34,37 @@ public class TransformationEngine : ITransformationEngine
 
             var hasDefault = mapping.Default.HasValue && mapping.Default.Value.ValueKind != JsonValueKind.Undefined;
 
-            bool sourceFound = false;
-            JsonNode? value = null;
-
-            if (!string.IsNullOrEmpty(mapping.Source))
-                (sourceFound, value) = ResolveSource(mapping.Source, input);
-
             JsonNode? resolvedValue;
-            if (sourceFound && value is not null)
+
+            if (mapping.Condition is not null)
             {
-                resolvedValue = value;
-            }
-            else if (hasDefault)
-            {
-                resolvedValue = JsonNode.Parse(mapping.Default!.Value.GetRawText());
-            }
-            else if (sourceFound)
-            {
-                resolvedValue = null;
+                resolvedValue = ResolveCondition(mapping.Condition, input);
             }
             else
             {
-                _logger.LogWarning("Source path '{Source}' matched no value and no default — field omitted.", mapping.Source);
-                continue;
+                bool sourceFound = false;
+                JsonNode? value = null;
+
+                if (!string.IsNullOrEmpty(mapping.Source))
+                    (sourceFound, value) = ResolveSource(mapping.Source, input);
+
+                if (sourceFound && value is not null)
+                {
+                    resolvedValue = value;
+                }
+                else if (hasDefault)
+                {
+                    resolvedValue = JsonNode.Parse(mapping.Default!.Value.GetRawText());
+                }
+                else if (sourceFound)
+                {
+                    resolvedValue = null;
+                }
+                else
+                {
+                    _logger.LogWarning("Source path '{Source}' matched no value and no default — field omitted.", mapping.Source);
+                    continue;
+                }
             }
 
             var afterType = resolvedValue is null ? null : ApplyType(resolvedValue.DeepClone(), mapping, mismatchMode, dateFormat);
@@ -166,6 +176,30 @@ public class TransformationEngine : ITransformationEngine
     {
         _logger.LogWarning("Type coercion failed for target '{Target}': {Error} — writing null.", target, errorMessage);
         return null;
+    }
+
+    private JsonNode? ResolveCondition(ConditionConfig condition, JsonNode input)
+    {
+        var branch = !string.IsNullOrEmpty(condition.If) && _conditionEvaluator.Evaluate(condition.If, input)
+            ? condition.Then
+            : condition.Else;
+
+        if (!branch.HasValue || branch.Value.ValueKind == JsonValueKind.Undefined)
+            return null;
+
+        // JSONPath branch — string values starting with "$" are resolved against input
+        if (branch.Value.ValueKind == JsonValueKind.String)
+        {
+            var str = branch.Value.GetString()!;
+            if (str.StartsWith('$'))
+            {
+                var path = JsonPath.Parse(str);
+                var match = path.Evaluate(input).Matches.FirstOrDefault();
+                return match?.Value;
+            }
+        }
+
+        return JsonNode.Parse(branch.Value.GetRawText());
     }
 
     private (bool found, JsonNode? value) ResolveSource(string sourcePath, JsonNode input)

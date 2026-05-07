@@ -12,4 +12,5 @@ public class MappingConfig
     public JsonElement? Parameters { get; set; }
     public ValidationConfig? Validate { get; set; }
     public Dictionary<string, string>? Lookup { get; set; }
+    public ConditionConfig? Condition { get; set; }
 }
