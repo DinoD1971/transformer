@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -14,16 +15,20 @@ namespace Transformer.Tests.Functions;
 public class TransformFunctionTests
 {
     private readonly Mock<IConfigLoader> _configLoaderMock;
+    private readonly Mock<ITransformationEngine> _engineMock;
     private readonly TransformFunction _function;
 
     public TransformFunctionTests()
     {
         var logger = new Mock<ILogger<TransformFunction>>();
         _configLoaderMock = new Mock<IConfigLoader>();
+        _engineMock = new Mock<ITransformationEngine>();
+
         _configLoaderMock
             .Setup(x => x.LoadAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TransformConfig { Version = "1.0" });
-        _function = new TransformFunction(logger.Object, _configLoaderMock.Object);
+            .ReturnsAsync(new TransformConfig { Version = "1.0" }); // no mappings → passthrough
+
+        _function = new TransformFunction(logger.Object, _configLoaderMock.Object, _engineMock.Object);
     }
 
     private static HttpRequest BuildRequest(string contentType, string? body)
@@ -59,6 +64,36 @@ public class TransformFunctionTests
         Assert.Equal("sf-to-warehouse", root.GetProperty("configName").GetString());
         Assert.True(root.TryGetProperty("processedAt", out _));
         Assert.Equal("abc", root.GetProperty("payload").GetProperty("orderId").GetString());
+    }
+
+    [Fact]
+    public async Task RunAsync_ConfigHasMappings_CallsEngine()
+    {
+        var configWithMappings = new TransformConfig
+        {
+            Version = "1.0",
+            Mappings = [new MappingConfig { Source = "$.id", Target = "orderId" }]
+        };
+        _configLoaderMock
+            .Setup(x => x.LoadAsync("crm", "order", "mapped", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(configWithMappings);
+
+        var engineOutput = new JsonObject { ["orderId"] = "xyz" };
+        _engineMock
+            .Setup(x => x.Transform(It.IsAny<JsonObject>(), configWithMappings))
+            .Returns(engineOutput);
+
+        var body = """{"correlationId":"c1","payload":{"id":"xyz"}}""";
+        var req = BuildRequest("application/json", body);
+
+        var result = await _function.RunAsync(req, "crm", "order", "mapped", CancellationToken.None);
+
+        var content = Assert.IsType<ContentResult>(result);
+        Assert.Equal(200, content.StatusCode);
+        _engineMock.Verify(x => x.Transform(It.IsAny<JsonObject>(), configWithMappings), Times.Once);
+
+        var doc = JsonDocument.Parse(content.Content!);
+        Assert.Equal("xyz", doc.RootElement.GetProperty("payload").GetProperty("orderId").GetString());
     }
 
     [Fact]

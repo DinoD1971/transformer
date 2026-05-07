@@ -16,5 +16,6 @@ builder.Services.AddOpenTelemetry()
     .UseAzureMonitorExporter();
 
 builder.Services.AddSingleton<IConfigLoader, ConfigLoader>();
+builder.Services.AddSingleton<ITransformationEngine, TransformationEngine>();
 
 builder.Build().Run();

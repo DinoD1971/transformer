@@ -1,0 +1,9 @@
+{
+  "version": "1.0",
+  "description": "Normalize a raw order payload into the standard order schema.",
+  "mappings": [
+    { "source": "$.id", "target": "orderId" },
+    { "source": "$.customer.full_name", "target": "customer.name" },
+    { "source": "$.shipping.address1", "target": "shipping.address.line1" }
+  ]
+}
