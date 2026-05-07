@@ -12,12 +12,15 @@ public class TransformationEngine : ITransformationEngine
     private readonly ILogger<TransformationEngine> _logger;
     private readonly TransformRegistry _registry;
     private readonly IConditionEvaluator _conditionEvaluator;
+    private readonly IExpressionEvaluator _expressionEvaluator;
 
-    public TransformationEngine(ILogger<TransformationEngine> logger, TransformRegistry registry, IConditionEvaluator conditionEvaluator)
+    public TransformationEngine(ILogger<TransformationEngine> logger, TransformRegistry registry,
+        IConditionEvaluator conditionEvaluator, IExpressionEvaluator expressionEvaluator)
     {
         _logger = logger;
         _registry = registry;
         _conditionEvaluator = conditionEvaluator;
+        _expressionEvaluator = expressionEvaluator;
     }
 
     public JsonObject Transform(JsonObject input, TransformConfig config)
@@ -39,6 +42,23 @@ public class TransformationEngine : ITransformationEngine
             if (mapping.Condition is not null)
             {
                 resolvedValue = ResolveCondition(mapping.Condition, input);
+            }
+            else if (!string.IsNullOrEmpty(mapping.Expression))
+            {
+                try
+                {
+                    resolvedValue = _expressionEvaluator.Evaluate(mapping.Expression, input);
+                }
+                catch (TransformationException) when (missingFieldMode.Equals("ignore", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning("Expression '{Expression}' skipped — operand resolved to null or absent.", mapping.Expression);
+                    continue;
+                }
+                catch (TransformationException) when (missingFieldMode.Equals("null", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning("Expression '{Expression}' — operand resolved to null or absent, writing null.", mapping.Expression);
+                    resolvedValue = null;
+                }
             }
             else
             {

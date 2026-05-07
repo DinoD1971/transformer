@@ -25,7 +25,11 @@ public class TransformationEngineTests
     {
         var logger = new Mock<ILogger<TransformationEngine>>();
         var conditionLogger = new Mock<ILogger<ConditionEvaluator>>();
-        _engine = new TransformationEngine(logger.Object, BuildRegistry(), new ConditionEvaluator(conditionLogger.Object));
+        _engine = new TransformationEngine(
+            logger.Object,
+            BuildRegistry(),
+            new ConditionEvaluator(conditionLogger.Object),
+            new ExpressionEvaluator());
     }
 
     private static JsonObject ParseInput(string json) =>
@@ -529,5 +533,97 @@ public class TransformationEngineTests
         var result = _engine.Transform(input, config);
 
         Assert.Equal("premium", result["result"]?.GetValue<string>());
+    }
+
+    // --- inline expressions ---
+
+    private static TransformConfig ExpressionMappingConfig(string expression, string target, string? type = null,
+        string? onMissingField = null) =>
+        new()
+        {
+            Mappings = [new MappingConfig { Target = target, Expression = expression, Type = type }],
+            ErrorHandling = onMissingField is null ? null : new ErrorHandlingConfig { OnMissingField = onMissingField }
+        };
+
+    [Fact]
+    public void Transform_Expression_Arithmetic_WritesResult()
+    {
+        var input = ParseInput("""{"qty":3,"price":9.99}""");
+        var config = ExpressionMappingConfig("$.qty * $.price", "lineTotal", "decimal");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal(29.97m, result["lineTotal"]?.GetValue<decimal>());
+    }
+
+    [Fact]
+    public void Transform_Expression_Comparison_WritesBool()
+    {
+        var input = ParseInput("""{"total":1500}""");
+        var config = ExpressionMappingConfig("$.total > 1000", "isHighValue", "boolean");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result["isHighValue"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public void Transform_Expression_WithTypeConversion_ConvertsResult()
+    {
+        var input = ParseInput("""{"a":"5","b":"3"}""");
+        var config = ExpressionMappingConfig("$.a + $.b", "total", "decimal");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal(8m, result["total"]?.GetValue<decimal>());
+    }
+
+    [Fact]
+    public void Transform_Expression_MissingOperand_OnMissingFieldError_Throws()
+    {
+        var input = ParseInput("""{"qty":3}""");
+        var config = ExpressionMappingConfig("$.qty * $.price", "lineTotal", null, "error");
+
+        Assert.Throws<TransformationException>(() => _engine.Transform(input, config));
+    }
+
+    [Fact]
+    public void Transform_Expression_MissingOperand_OnMissingFieldNull_WritesNull()
+    {
+        var input = ParseInput("""{"qty":3}""");
+        var config = ExpressionMappingConfig("$.qty * $.price", "lineTotal", null, "null");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("lineTotal"));
+        Assert.Null(result["lineTotal"]);
+    }
+
+    [Fact]
+    public void Transform_Expression_MissingOperand_OnMissingFieldIgnore_OmitsField()
+    {
+        var input = ParseInput("""{"qty":3}""");
+        var config = ExpressionMappingConfig("$.qty * $.price", "lineTotal", null, "ignore");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.False(result.ContainsKey("lineTotal"));
+    }
+
+    [Fact]
+    public void Transform_Expression_SourceFieldIgnored()
+    {
+        var input = ParseInput("""{"qty":2,"price":5,"ignored":"nope"}""");
+        var config = new TransformConfig
+        {
+            Mappings =
+            [
+                new MappingConfig { Source = "$.ignored", Target = "total", Expression = "$.qty * $.price" }
+            ]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal(10m, result["total"]?.GetValue<decimal>());
     }
 }
