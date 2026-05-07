@@ -5,6 +5,7 @@ using Microsoft.Azure.Functions.Worker.OpenTelemetry;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
+using Transformer.Middleware;
 using Transformer.Services;
 using Transformer.Services.PostProcessing;
 using Transformer.Services.TransformFunctions;
@@ -12,6 +13,9 @@ using Transformer.Services.TransformFunctions;
 var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
+builder.UseMiddleware<ExceptionHandlingMiddleware>();
+
+builder.Services.AddSingleton<ExceptionHandlingMiddleware>();
 
 builder.Services.AddOpenTelemetry()
     .UseFunctionsWorkerDefaults()

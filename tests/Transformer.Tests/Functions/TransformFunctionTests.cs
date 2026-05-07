@@ -97,18 +97,12 @@ public class TransformFunctionTests
     }
 
     [Fact]
-    public async Task RunAsync_MalformedBody_Returns400()
+    public async Task RunAsync_MalformedBody_ThrowsJsonException()
     {
         var req = BuildRequest("application/json", "not valid json {{");
 
-        var result = await _function.RunAsync(req, "crm", "order", "sf-to-warehouse", CancellationToken.None);
-
-        var content = Assert.IsType<ContentResult>(result);
-        Assert.Equal(400, content.StatusCode);
-
-        var doc = JsonDocument.Parse(content.Content!);
-        Assert.Equal(400, doc.RootElement.GetProperty("status").GetInt32());
-        Assert.Equal("https://transformer/errors/invalid-request", doc.RootElement.GetProperty("type").GetString());
+        await Assert.ThrowsAsync<JsonException>(() =>
+            _function.RunAsync(req, "crm", "order", "sf-to-warehouse", CancellationToken.None));
     }
 
     [Fact]
@@ -127,7 +121,7 @@ public class TransformFunctionTests
     }
 
     [Fact]
-    public async Task RunAsync_ConfigNotFound_Returns404()
+    public async Task RunAsync_ConfigNotFound_ThrowsConfigNotFoundException()
     {
         _configLoaderMock
             .Setup(x => x.LoadAsync("crm", "order", "missing", It.IsAny<CancellationToken>()))
@@ -136,19 +130,12 @@ public class TransformFunctionTests
         var body = """{"correlationId":"abc","payload":{}}""";
         var req = BuildRequest("application/json", body);
 
-        var result = await _function.RunAsync(req, "crm", "order", "missing", CancellationToken.None);
-
-        var content = Assert.IsType<ContentResult>(result);
-        Assert.Equal(404, content.StatusCode);
-
-        var doc = JsonDocument.Parse(content.Content!);
-        Assert.Equal(404, doc.RootElement.GetProperty("status").GetInt32());
-        Assert.Equal("https://transformer/errors/config-not-found", doc.RootElement.GetProperty("type").GetString());
-        Assert.Equal("abc", doc.RootElement.GetProperty("correlationId").GetString());
+        await Assert.ThrowsAsync<ConfigNotFoundException>(() =>
+            _function.RunAsync(req, "crm", "order", "missing", CancellationToken.None));
     }
 
     [Fact]
-    public async Task RunAsync_ConfigParseError_Returns500()
+    public async Task RunAsync_ConfigParseError_ThrowsConfigParseException()
     {
         _configLoaderMock
             .Setup(x => x.LoadAsync("crm", "order", "broken", It.IsAny<CancellationToken>()))
@@ -157,14 +144,7 @@ public class TransformFunctionTests
         var body = """{"correlationId":"xyz","payload":{}}""";
         var req = BuildRequest("application/json", body);
 
-        var result = await _function.RunAsync(req, "crm", "order", "broken", CancellationToken.None);
-
-        var content = Assert.IsType<ContentResult>(result);
-        Assert.Equal(500, content.StatusCode);
-
-        var doc = JsonDocument.Parse(content.Content!);
-        Assert.Equal(500, doc.RootElement.GetProperty("status").GetInt32());
-        Assert.Equal("https://transformer/errors/config-parse-error", doc.RootElement.GetProperty("type").GetString());
-        Assert.Equal("xyz", doc.RootElement.GetProperty("correlationId").GetString());
+        await Assert.ThrowsAsync<ConfigParseException>(() =>
+            _function.RunAsync(req, "crm", "order", "broken", CancellationToken.None));
     }
 }

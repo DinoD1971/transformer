@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
-using Transformer.Exceptions;
 using Transformer.Models;
 using Transformer.Services;
 
@@ -48,55 +47,18 @@ public class TransformFunction
                 "Content-Type must be application/json.");
         }
 
-        TransformRequest? envelope;
-        try
-        {
-            envelope = await JsonSerializer.DeserializeAsync<TransformRequest>(
-                req.Body, SerializerOptions, cancellationToken);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogError(ex, "Failed to deserialize request body");
-            return ProblemResult(400,
-                "https://transformer/errors/invalid-request",
-                "Invalid Request",
-                "Request body is not valid JSON.");
-        }
+        var envelope = await JsonSerializer.DeserializeAsync<TransformRequest>(
+            req.Body, SerializerOptions, cancellationToken);
 
         if (envelope is null)
-        {
-            return ProblemResult(400,
-                "https://transformer/errors/invalid-request",
-                "Invalid Request",
-                "Request body must be a JSON object.");
-        }
+            throw new ArgumentException("Request body must be a JSON object.");
+
+        req.HttpContext.Items["CorrelationId"] = envelope.CorrelationId;
 
         _logger.LogInformation("Transform request received. CorrelationId={CorrelationId} Domain={Domain} Operation={Operation} ConfigName={ConfigName}",
             envelope.CorrelationId, domain, operation, configName);
 
-        TransformConfig config;
-        try
-        {
-            config = await _configLoader.LoadAsync(domain, operation, configName, cancellationToken);
-        }
-        catch (ConfigNotFoundException ex)
-        {
-            _logger.LogWarning(ex, "Config not found. CorrelationId={CorrelationId}", envelope.CorrelationId);
-            return ProblemResult(404,
-                "https://transformer/errors/config-not-found",
-                "Configuration Not Found",
-                ex.Message,
-                envelope.CorrelationId);
-        }
-        catch (ConfigParseException ex)
-        {
-            _logger.LogError(ex, "Config parse failure. CorrelationId={CorrelationId}", envelope.CorrelationId);
-            return ProblemResult(500,
-                "https://transformer/errors/config-parse-error",
-                "Configuration Parse Error",
-                ex.Message,
-                envelope.CorrelationId);
-        }
+        var config = await _configLoader.LoadAsync(domain, operation, configName, cancellationToken);
 
         JsonElement outputPayload;
         if (config.Mappings.Count > 0 && envelope.Payload.HasValue)
