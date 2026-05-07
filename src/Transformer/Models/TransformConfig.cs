@@ -7,4 +7,5 @@ public class TransformConfig
     public List<MappingConfig> Mappings { get; set; } = [];
     public TransformSettings? Settings { get; set; }
     public ErrorHandlingConfig? ErrorHandling { get; set; }
+    public List<PostProcessingConfig> PostProcessing { get; set; } = [];
 }

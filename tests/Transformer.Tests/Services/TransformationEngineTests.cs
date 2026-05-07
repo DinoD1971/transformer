@@ -5,6 +5,7 @@ using Moq;
 using Transformer.Exceptions;
 using Transformer.Models;
 using Transformer.Services;
+using Transformer.Services.PostProcessing;
 using Transformer.Services.TransformFunctions;
 
 namespace Transformer.Tests.Services;
@@ -21,6 +22,12 @@ public class TransformationEngineTests
         ("now",      new NowTransformFunction())
     ]);
 
+    private static PostProcessingRegistry BuildPostProcessingRegistry() => new(
+    [
+        ("removeEmptyObjects", new RemoveEmptyObjectsStep()),
+        ("sortArray",          new SortArrayStep())
+    ]);
+
     public TransformationEngineTests()
     {
         var logger = new Mock<ILogger<TransformationEngine>>();
@@ -29,7 +36,8 @@ public class TransformationEngineTests
             logger.Object,
             BuildRegistry(),
             new ConditionEvaluator(conditionLogger.Object),
-            new ExpressionEvaluator());
+            new ExpressionEvaluator(),
+            BuildPostProcessingRegistry());
     }
 
     private static JsonObject ParseInput(string json) =>
@@ -832,5 +840,84 @@ public class TransformationEngineTests
         var result = _engine.Transform(input, config);
 
         Assert.Equal("static", result["name"]?.GetValue<string>());
+    }
+
+    // --- post-processing ---
+
+    [Fact]
+    public void Transform_PostProcessing_RemoveEmptyObjects_RunsAfterMappings()
+    {
+        var input = ParseInput("""{"id":"1"}""");
+        var config = new TransformConfig
+        {
+            Mappings =
+            [
+                new MappingConfig { Source = "$.id", Target = "id" },
+                new MappingConfig { Source = "$.missing", Target = "empty.field" }
+            ],
+            PostProcessing = [new PostProcessingConfig { Type = "removeEmptyObjects" }]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("id"));
+        Assert.False(result.ContainsKey("empty"));
+    }
+
+    [Fact]
+    public void Transform_PostProcessing_SortArray_SortsOutputArray()
+    {
+        var input = ParseInput("""{"items":[{"name":"Zebra"},{"name":"Apple"},{"name":"Mango"}]}""");
+        var config = new TransformConfig
+        {
+            Mappings = [new MappingConfig { Source = "$.items", Target = "items" }],
+            PostProcessing = [new PostProcessingConfig { Type = "sortArray", Target = "items", By = "name" }]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        var items = result["items"]!.AsArray();
+        Assert.Equal("Apple", items[0]!["name"]?.GetValue<string>());
+        Assert.Equal("Mango", items[1]!["name"]?.GetValue<string>());
+        Assert.Equal("Zebra", items[2]!["name"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_PostProcessing_MultipleSteps_ExecuteInOrder()
+    {
+        var input = ParseInput("""{"items":[{"name":"Zebra"},{"name":"Apple"}],"extra":null}""");
+        var config = new TransformConfig
+        {
+            Settings = new TransformSettings { IgnoreNulls = true },
+            Mappings =
+            [
+                new MappingConfig { Source = "$.items", Target = "items" },
+                new MappingConfig { Source = "$.extra", Target = "empty.val" }
+            ],
+            PostProcessing =
+            [
+                new PostProcessingConfig { Type = "removeEmptyObjects" },
+                new PostProcessingConfig { Type = "sortArray", Target = "items", By = "name" }
+            ]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.False(result.ContainsKey("empty"));
+        var items = result["items"]!.AsArray();
+        Assert.Equal("Apple", items[0]!["name"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_PostProcessing_UnknownStepType_ThrowsTransformationException()
+    {
+        var input = ParseInput("""{"id":"1"}""");
+        var config = new TransformConfig
+        {
+            Mappings = [new MappingConfig { Source = "$.id", Target = "id" }],
+            PostProcessing = [new PostProcessingConfig { Type = "nonexistent" }]
+        };
+
+        Assert.Throws<TransformationException>(() => _engine.Transform(input, config));
     }
 }
