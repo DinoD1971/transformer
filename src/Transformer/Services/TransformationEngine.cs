@@ -78,28 +78,40 @@ public class TransformationEngine : ITransformationEngine
             }
             else
             {
-                bool sourceFound = false;
-                JsonNode? value = null;
+                // value takes precedence over source when both are present
+                var hasStaticValue = mapping.Value.HasValue && mapping.Value.Value.ValueKind != JsonValueKind.Undefined;
 
-                if (!string.IsNullOrEmpty(mapping.Source))
-                    (sourceFound, value) = ResolveSource(mapping.Source, input);
-
-                if (sourceFound && value is not null)
+                if (hasStaticValue)
                 {
-                    resolvedValue = value;
-                }
-                else if (hasDefault)
-                {
-                    resolvedValue = JsonNode.Parse(mapping.Default!.Value.GetRawText());
-                }
-                else if (sourceFound)
-                {
-                    resolvedValue = null;
+                    resolvedValue = mapping.Value!.Value.ValueKind == JsonValueKind.Null
+                        ? null
+                        : JsonNode.Parse(mapping.Value!.Value.GetRawText());
                 }
                 else
                 {
-                    _logger.LogWarning("Source path '{Source}' matched no value and no default — field omitted.", mapping.Source);
-                    continue;
+                    bool sourceFound = false;
+                    JsonNode? value = null;
+
+                    if (!string.IsNullOrEmpty(mapping.Source))
+                        (sourceFound, value) = ResolveSource(mapping.Source, input);
+
+                    if (sourceFound && value is not null)
+                    {
+                        resolvedValue = value;
+                    }
+                    else if (hasDefault)
+                    {
+                        resolvedValue = JsonNode.Parse(mapping.Default!.Value.GetRawText());
+                    }
+                    else if (sourceFound)
+                    {
+                        resolvedValue = null;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Source path '{Source}' matched no value and no default — field omitted.", mapping.Source);
+                        continue;
+                    }
                 }
             }
 

@@ -15,4 +15,5 @@ public class MappingConfig
     public ConditionConfig? Condition { get; set; }
     public string? Expression { get; set; }
     public Dictionary<string, JsonElement>? ItemMapping { get; set; }
+    public JsonElement? Value { get; set; }
 }
