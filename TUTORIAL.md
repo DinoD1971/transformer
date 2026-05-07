@@ -13,6 +13,8 @@
 - [Phase 8 — Pro-plan usage discipline](#phase-8--pro-plan-usage-discipline)
 - [Phase 9 — The starter prompt library](#phase-9--the-starter-prompt-library)
 - [What this taught us](#what-this-taught-us)
+- [Appendix A — Sample CLAUDE.md interview answers (Phase 6)](#appendix-a--sample-claudemd-interview-answers-phase-6)
+- [Appendix B — Sample v1 backlog: 15 issues filed (Phase 7)](#appendix-b--sample-v1-backlog-15-issues-filed-phase-7)
 
 ---
 
@@ -305,7 +307,7 @@ git push origin main
 
 When this hits GitHub, Actions will fire and the build will fail. **This is expected.** There's no .NET project yet — `dotnet restore` has nothing to restore against. The CI failure isn't a configuration problem; it's the file structure being incomplete.
 
-Don't panic, don't disable CI, don't add a stub project just to make the green checkmark appear. The first real story will create the project and the first CI run after that PR merges will go green. Until then, leave the failure visible. It's an accurate signal that there's no working build yet.
+Don't panic, don't disable CI, don't add a stub project just to make the green checkmark appear. The first real story will create the project and the first CI run after that PR will go green. Until then, leave the failure visible. It's an accurate signal that there's no working build yet.
 
 ### 2.6 Configure branch protection
 
@@ -382,7 +384,7 @@ Don't paste the token directly into a config file you might commit. Two reasonab
 
    ```powershell
    # Permanent (persists across reboots)
-   [Environment]::SetEnvironmentVariable("GITHUB_PAT", "<your-token-here>", "User")
+   [Environment]::SetEnvironmentVariable("GITHUB_PAT", "ghp_yourTokenHere", "User")
 
    # Verify (open a fresh PowerShell window first)
    $env:GITHUB_PAT
@@ -599,6 +601,8 @@ The doc is a living surface. Every clarification round is feedback that somethin
 - **The doc gets stale fastest in fast-moving sections.** Tech Stack, dependencies, and deployment pipelines drift quickly. API contract and coding conventions drift slowly. When updating, prioritize the sections that the agents cite most.
 - **Update when a deviation is flagged, not before.** If an agent flags "the modern pattern for X is Y", that's the moment to decide. Pre-emptive rewrites tend to introduce new bugs in the doc.
 
+> **See [Appendix A](#appendix-a--sample-claudemd-interview-answers-phase-6)** for a complete worked example: the actual answers given during the interview that produced this project's `CLAUDE.md`. Useful as a reference for the level of specificity each section needs.
+
 ---
 
 ## Phase 7 — Run the workflow on a real story
@@ -616,6 +620,8 @@ There are three reasons:
 3. **It's faster.** Filing twelve stories in a single Cowork session is dramatically less expensive (in usage and in your time) than twelve separate sessions of "now file the next one."
 
 Use the *Cowork — File a follow-up story* prompt from `prompts.md` for each one, or write a single bulk prompt that walks through your whole backlog. Apply `status:ready` to the first one (or first few, if they're parallelizable) and `status:blocked` to anything with a dependency. Cowork should add a "Blocked by #N" line to each blocked issue's body so the chain is explicit.
+
+> **See [Appendix B](#appendix-b--sample-v1-backlog-15-issues-filed-phase-7)** for the actual 15 issues filed for the `transformer` project. Useful as a reference for how stories should be sized, how acceptance criteria should be written, and how dependencies should be expressed via the `Blocked by` chain.
 
 ### 7.2 Cowork: status summary at the start of a session
 
@@ -687,13 +693,13 @@ If you tried to do everything from one Claude Code session — write the code *a
 In our setup:
 
 - The PR is authored by **you** (because Claude Code uses `gh` authenticated as you to push and open the PR).
-- Cowork submits a review via the same PAT, also acting as you.
+- The review needs to come from a **different identity** — but Cowork's GitHub MCP also uses your PAT. So Cowork is also "you" from GitHub's perspective.
 
-That sounds like a problem, but in practice it works because GitHub's self-approval rule blocks the *PR author* from formally clicking Approve on their own PR. Cowork's role is to do a thorough review and surface issues; you, the human, click Merge. The merge action is yours.
+That sounds like a problem, but it isn't quite. GitHub's self-approval block is on the *PR author* approving their own PR, not on the user submitting two reviews from different sessions. Claude Code authored the PR via your account; Cowork submits a review via your account; GitHub treats the second action as "the PR author approving their own PR" only if it's literally a self-approve action, which Cowork isn't doing — it's submitting a *review*, which counts as a review from "you" but doesn't satisfy the "1 required approving review" rule on its own when authored by the same user.
+
+In practice: you click the **Merge** button. The PR is open, CI is green, Cowork has approved (or, more precisely, has done a thorough review and recommended merging), and you make the call. The merge action is yours, the human's. The agents don't merge.
 
 This is the right shape. The agents do the work and the analysis; you make the irreversible call. If you're tempted to script the merge step too, you've slipped into the single-agent failure mode this whole pattern is trying to avoid.
-
-If you want a separately-attributed approving review (for branch protection's "1 required approving review" rule), generate the Cowork PAT under a separate GitHub account — a bot account dedicated to review work. That's a worthwhile upgrade once the basic loop is running, but it isn't required to start.
 
 ### 7.7 Merge, then post-merge cleanup
 
@@ -865,3 +871,515 @@ Every "watch out for" in this guide is a moment where the system pushed back aga
 
 **7. The agents don't get smarter; the project gets clearer.**
 At the start, the agents need a lot of clarification. By story ten, they're picking up issues and producing PRs that pass review on the first round. The agents haven't changed — `CLAUDE.md` has, the issue templates have, your prompts have, your sense of what a "well-specified story" looks like has. The leverage in this workflow is in the artifacts, not in the model. Invest accordingly: every minute spent improving `CLAUDE.md` and `prompts.md` saves multiples downstream.
+
+---
+
+## Appendix A — Sample CLAUDE.md interview answers (Phase 6)
+
+This appendix documents the actual answers given during the interview that produced the `CLAUDE.md` for the `transformer` project. The intent is to show, concretely, the level of specificity each section needs. A good `CLAUDE.md` is opinionated and committal — vague answers produce vague conventions, which produce drift.
+
+The interview was driven by Cowork in Ask mode, one question at a time. The answers below are the human's responses, lightly cleaned up. Each section corresponds to a heading that ended up in `CLAUDE.md`.
+
+### 1. Project Overview
+
+> A general-purpose data normalization layer sitting between upstream sources (operational systems, APIs, ingestion pipelines) and downstream consumers (data warehouse, APIs, apps). Called by ingestion workflows or event triggers; transforms semi-structured or heterogeneous payloads into structured, schema-aligned data.
+
+### 2. Tech Stack
+
+- **Runtime:** .NET 8
+- **Functions:** Azure Functions v4, Isolated Worker model
+- **Hosting:** Flex Consumption hosting plan
+- **JSON:** `System.Text.Json` for all JSON handling
+- **Logging:** Built-in `ILogger` + Application Insights for telemetry
+- **No external service calls, no secrets management, no extra NuGet dependencies for v1**
+
+### 3. Project Structure
+
+```
+transformer/
+├── src/
+│   └── Transformer/
+│       ├── Functions/
+│       ├── Services/
+│       ├── Models/
+│       ├── Configs/
+│       │   └── {Domain}/
+│       │       └── {Operation}/
+│       │           └── {configName}.json
+│       └── Program.cs
+├── tests/
+│   └── Transformer.Tests/
+├── transformer.sln
+└── CLAUDE.md
+```
+
+### 4. Configuration Format
+
+- Embedded JSON files, versioned with code
+- Selected via URL route: `POST /api/transform/{domain}/{operation}/{configName}`
+- Config path mirrors route: `Configs/{Domain}/{Operation}/{configName}.json`
+- Full feature surface (see the example transformation config below): direct mapping, nested objects, type conversion, defaults, validation, transform functions (trim, round, contains, now), conditional logic, inline expressions, lookups/enum mapping, array transforms with item-level mapping, static value injection, post-processing steps, error handling strategies
+
+#### Example transformation config (the "feature surface" reference)
+
+This single example was used during the interview to communicate the full feature surface the engine needed to support. Every individual capability in this file became one or more stories in the backlog (see [Appendix B](#appendix-b--sample-v1-backlog-15-issues-filed-phase-7)).
+
+```json
+{
+  "version": "1.0",
+  "description": "Transform inbound order payload into normalized order model",
+
+  "source": {
+    "type": "json",
+    "rootPath": "$"
+  },
+
+  "target": {
+    "type": "json",
+    "rootObject": "order"
+  },
+
+  "settings": {
+    "ignoreNulls": true,
+    "dateFormat": "yyyy-MM-ddTHH:mm:ssZ",
+    "culture": "en-US"
+  },
+
+  "mappings": [
+    {
+      "target": "orderId",
+      "source": "$.id",
+      "type": "string"
+    },
+    {
+      "target": "customer.name",
+      "source": "$.customer.full_name",
+      "type": "string",
+      "transform": "trim"
+    },
+    {
+      "target": "customer.email",
+      "source": "$.customer.email",
+      "type": "string",
+      "validate": {
+        "regex": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+        "onFail": "null"
+      }
+    },
+    {
+      "target": "customer.isVip",
+      "source": "$.customer.tags",
+      "type": "boolean",
+      "transform": "contains",
+      "parameters": {
+        "value": "VIP"
+      }
+    },
+    {
+      "target": "orderDate",
+      "source": "$.created_at",
+      "type": "datetime",
+      "format": "yyyy-MM-ddTHH:mm:ssZ"
+    },
+    {
+      "target": "totalAmount",
+      "source": "$.total",
+      "type": "decimal",
+      "transform": "round",
+      "parameters": {
+        "precision": 2
+      }
+    },
+    {
+      "target": "currency",
+      "source": "$.currency",
+      "type": "string",
+      "default": "USD"
+    },
+    {
+      "target": "status",
+      "source": "$.status",
+      "type": "string",
+      "lookup": {
+        "pending": "Pending",
+        "paid": "Completed",
+        "failed": "Cancelled"
+      }
+    },
+    {
+      "target": "shipping.address.line1",
+      "source": "$.shipping.address1"
+    },
+    {
+      "target": "shipping.address.city",
+      "source": "$.shipping.city"
+    },
+    {
+      "target": "shipping.address.postalCode",
+      "source": "$.shipping.zip"
+    },
+    {
+      "target": "items",
+      "source": "$.line_items",
+      "type": "array",
+      "itemMapping": {
+        "sku": "$.sku",
+        "name": "$.name",
+        "quantity": "$.qty",
+        "unitPrice": "$.price",
+        "lineTotal": {
+          "expression": "$.qty * $.price"
+        }
+      }
+    },
+    {
+      "target": "discountAmount",
+      "type": "decimal",
+      "condition": {
+        "if": "$.discount != null",
+        "then": "$.discount.amount",
+        "else": 0
+      }
+    },
+    {
+      "target": "isHighValue",
+      "type": "boolean",
+      "expression": "$.total > 1000"
+    },
+    {
+      "target": "metadata.sourceSystem",
+      "value": "Shopify"
+    },
+    {
+      "target": "metadata.processedAt",
+      "type": "datetime",
+      "transform": "now"
+    }
+  ],
+
+  "postProcessing": [
+    {
+      "type": "removeEmptyObjects"
+    },
+    {
+      "type": "sortArray",
+      "target": "items",
+      "by": "name"
+    }
+  ],
+
+  "errorHandling": {
+    "onMissingField": "ignore",
+    "onTypeMismatch": "coerce",
+    "onError": "log"
+  }
+}
+```
+
+### 5. API Contract
+
+- **Route:** `POST /api/transform/{domain}/{operation}/{configName}`
+- **Request envelope:** `{ "correlationId": "...", "payload": { } }`
+- **Response envelope:** `{ "correlationId": "...", "domain": "...", "operation": "...", "configName": "...", "processedAt": "...", "payload": { } }`
+- **Errors:** RFC 7807 ProblemDetails
+- **Status codes:** 200, 400, 404, 415, 500
+- **No versioning for v1**
+
+### 6. Coding Conventions
+
+- PascalCase for classes, methods, properties, file names
+- `_camelCase` for private fields
+- camelCase for JSON serialization
+- I-prefixed interfaces (`IConfigLoader`, `ITransformationEngine`)
+- kebab-case for config file names
+- async/await end-to-end, `CancellationToken` threaded through, no `async void`
+- DI via `IServiceCollection` in `Program.cs`, interface→implementation, Singleton lifetime for stateless services
+- Global middleware exception handler
+- Typed exceptions: `ConfigNotFoundException`, `TransformationException`
+- No swallowed exceptions
+
+### 7. Testing
+
+- xUnit + Moq
+- Unit tests only for v1; integration tests deferred
+- 80% coverage target enforced
+
+### 8. Deployment
+
+- **Resource naming pattern:** `rg-transformer-{env}`, `func-transformer-{env}`, `sttransformer{env}`, `appi-transformer-{env}`
+- **`dev` environment only for now**
+- **Configuration:** environment variables / Azure App Settings only — no Key Vault for v1
+
+### 9. Workflow
+
+- **Labels:** `status:ready`, `status:in-progress`, `status:needs-clarification`, `status:in-review`, `status:qa`, `status:done`, `status:blocked` + `type:feature`, `type:bug`, `type:chore`
+- **Pull-based:** Claude Code scans for `status:ready` issues, picks the highest priority, moves it to `status:in-progress`
+- **Fully autonomous:** Claude Code implements → opens PR → CI runs → Cowork reviews → human approves → merges → closes issue → moves to `status:done`
+
+### What this list demonstrates
+
+A few patterns worth lifting into your own interview:
+
+- **Every section gets a concrete answer.** No "we'll figure that out later" entries. If something is genuinely undecided, the entry is "Decided: not in scope for v1" — explicit deferral, not vague absence.
+- **Naming patterns are spelled out, not described.** "PascalCase for classes" is enforceable; "follow standard C# naming" is not.
+- **The deployment section is short on purpose.** v1 is dev-only with App Settings. The terseness is honest; padding it with hypotheticals about prod / staging / Key Vault would create a doc that lies about the project's actual state.
+- **The example config in section 4 does most of the work for the engine spec.** Pointing at a single richly-annotated example is more efficient than writing prose about each feature.
+
+When you do this interview for your own project, a useful test: after you finish, hand `CLAUDE.md` to someone who wasn't in the room and ask them to predict three architectural choices the agents will make. If they can predict accurately, the doc is doing its job. If they can't, the doc has gaps.
+
+---
+
+## Appendix B — Sample v1 backlog: 15 issues filed (Phase 7)
+
+This appendix lists the 15 issues filed for the `transformer` v1 backlog. Each was created by Cowork during a single Phase 7 session, in the order shown, so issue numbers match the dependency graph (issue #1 has no dependencies; issue #15 depends transitively on most prior issues).
+
+The structure of each issue follows the Story template (`.github/ISSUE_TEMPLATE/story.md`): Title, Labels, Blocked by (where applicable), Context, Acceptance Criteria, Technical Notes, Out of Scope. Use these as a reference for how stories should be sized and specified for this workflow.
+
+The full conversation that produced this backlog: Cowork was given the example transformation config (Appendix A, section 4) and asked to propose a 15-story breakdown that would deliver the full feature surface in dependency order. The result was three foundation stories, three core engine stories, seven independent feature stories, and two polish stories.
+
+### Issue 1
+
+- **Title:** `chore: scaffold .NET solution and projects`
+- **Labels:** `status:ready`, `type:chore`
+- **Context:** First implementation task. Per `CLAUDE.md` "Project Structure," create the foundational solution before any features.
+- **Acceptance Criteria:**
+  - `transformer.sln` at repo root
+  - `src/Transformer/Transformer.csproj` targeting .NET 8, Azure Functions v4 isolated worker
+  - `tests/Transformer.Tests/Transformer.Tests.csproj` using xUnit + Moq, references main project
+  - Solution builds with `dotnet build` (no errors)
+  - Empty smoke test in tests project passes
+  - Folders `Functions/`, `Services/`, `Models/`, `Configs/` exist under `src/Transformer/` (with `.gitkeep` files)
+  - `Program.cs` with isolated worker host setup, ApplicationInsights, empty DI placeholder
+  - `host.json` and `local.settings.json` exist (`local.settings.json` gitignored)
+  - `.gitignore` for .NET / Azure Functions at repo root
+  - CI passes
+- **Technical Notes:** Use `dotnet new` and `func` templates. No transformation logic yet.
+- **Out of Scope:** Any transformation logic, HTTP functions, config files, deployment.
+
+### Issue 2
+
+- **Title:** `feat: implement HTTP function with route and request/response envelopes`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #1
+- **Context:** Per `CLAUDE.md` "API Contract," implement the HTTP entry point with route binding and request/response envelopes. No transformation logic yet — pass payload through unchanged.
+- **Acceptance Criteria:**
+  - HTTP-triggered function at route `POST /api/transform/{domain}/{operation}/{configName}`
+  - Request envelope model: `{ correlationId, payload }`
+  - Response envelope model: `{ correlationId, domain, operation, configName, processedAt, payload }`
+  - Returns 200 with response envelope (passthrough payload) for valid requests
+  - Returns 400 ProblemDetails if request envelope malformed
+  - Returns 415 ProblemDetails if Content-Type not application/json
+  - camelCase JSON serialization
+  - `CancellationToken` threaded through
+  - `ILogger` logs `correlationId` on request entry/exit
+  - Unit tests cover happy path + 400 + 415
+- **Out of Scope:** Config loading, actual transformation, full error middleware.
+
+### Issue 3
+
+- **Title:** `feat: implement config loader with embedded JSON files`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #2
+- **Context:** Per `CLAUDE.md` "Configuration Format," configs are embedded JSON files at `src/Transformer/Configs/{Domain}/{Operation}/{configName}.json`. Implement loading, caching, and parsing.
+- **Acceptance Criteria:**
+  - `IConfigLoader` interface and `ConfigLoader` implementation
+  - Loads config by `(domain, operation, configName)` from embedded resources or filesystem
+  - In-memory cache (singleton lifetime) keyed by full path
+  - Returns parsed config model on success
+  - Throws `ConfigNotFoundException` if file missing
+  - Throws `ConfigParseException` if JSON invalid
+  - Function returns 404 ProblemDetails on `ConfigNotFoundException`, 500 on parse errors
+  - Sample config at `Configs/Sample/Echo/passthrough.json` (empty mappings array — passes payload through)
+  - Unit tests cover: found, not found, invalid JSON, cache hit
+- **Out of Scope:** Validating config schema beyond JSON parse, transformation execution.
+
+### Issue 4
+
+- **Title:** `feat: implement direct field mapping with JSONPath`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #3
+- **Context:** Core engine. Implement `mappings[]` with `source` (JSONPath) → `target` (dotted path) for string values. Foundation for all subsequent transformation features.
+- **Acceptance Criteria:**
+  - `ITransformationEngine` interface, `TransformationEngine` implementation
+  - Reads `source` JSONPath from input payload
+  - Writes to `target` (supports nested dotted paths like `customer.name` and `shipping.address.city`)
+  - Returns transformed payload as JSON object
+  - HTTP function calls engine when config has mappings
+  - Sample config at `Configs/Sample/Order/normalize.json` demonstrating direct mappings
+  - Unit tests: simple mapping, nested target, missing source field, deeply nested target
+- **Technical Notes:** Use `System.Text.Json` `JsonNode` for traversal/mutation. JSONPath via `JsonPath.Net` NuGet or equivalent — confirm choice in implementation plan.
+- **Out of Scope:** Type conversion, defaults, transforms, validation, arrays, conditionals, expressions.
+
+### Issue 5
+
+- **Title:** `feat: add type conversion (string, decimal, integer, boolean, datetime)`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #4
+- **Context:** Per the config spec, mappings have a `type` field. Implement coercion plus the `errorHandling.onTypeMismatch` modes (`coerce`, `error`, `null`).
+- **Acceptance Criteria:**
+  - Supports `type` values: `string`, `decimal`, `integer`, `boolean`, `datetime`
+  - Datetime parsing respects `settings.dateFormat`
+  - `onTypeMismatch: coerce` attempts best-effort conversion
+  - `onTypeMismatch: error` throws `TransformationException`
+  - `onTypeMismatch: null` writes null on failure
+  - Unit tests cover each type, each onTypeMismatch mode, edge cases (empty string to decimal, etc.)
+- **Out of Scope:** Defaults, transforms, validation.
+
+### Issue 6
+
+- **Title:** `feat: add default values and ignoreNulls setting`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #5
+- **Context:** Implement the `default` field on mappings and the `settings.ignoreNulls` behavior.
+- **Acceptance Criteria:**
+  - If source is null/missing and `default` is set, use the default value (with type conversion)
+  - If `settings.ignoreNulls: true`, omit null target fields entirely from output
+  - If `settings.ignoreNulls: false`, write nulls explicitly
+  - Unit tests: default applied, default with type conversion, ignoreNulls true vs false
+- **Out of Scope:** Transforms, validation.
+
+### Issue 7
+
+- **Title:** `feat: add transform functions (trim, round, contains, now)`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #6
+- **Context:** Implement the `transform` field with `parameters` for built-in functions.
+- **Acceptance Criteria:**
+  - `trim` — string trim, no parameters
+  - `round` — decimal round, `parameters.precision` (int)
+  - `contains` — boolean check, `parameters.value` (any) returns true if source array contains value
+  - `now` — datetime current UTC, no parameters (ignores source)
+  - Extensible registry pattern (`ITransformFunction` interface) so new transforms can be added without modifying core engine
+  - Unit tests for each function plus an unknown-transform case (should throw `TransformationException`)
+- **Out of Scope:** Validation, conditionals, expressions.
+
+### Issue 8
+
+- **Title:** `feat: add validation with regex and onFail behavior`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #7
+- **Context:** Implement the `validate` block with `regex` and `onFail` modes (`null`, `error`, `default`).
+- **Acceptance Criteria:**
+  - Regex validation runs after type conversion, before transforms
+  - `onFail: null` writes null on validation failure
+  - `onFail: error` throws `TransformationException`
+  - `onFail: default` writes the mapping's default value
+  - Unit tests cover each onFail mode and a regex-matched success case
+- **Out of Scope:** Conditionals, lookups.
+
+### Issue 9
+
+- **Title:** `feat: add lookup / enum mapping`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #8
+- **Context:** Implement the `lookup` field — a key/value object that maps source values to target values.
+- **Acceptance Criteria:**
+  - Lookup applied after type conversion
+  - If source value is a key in lookup, write the mapped value
+  - If source value is not a key, behavior depends on `errorHandling.onMissingField` (`ignore` writes source as-is, `error` throws, `null` writes null)
+  - Unit tests: hit, miss with each `onMissingField` mode
+- **Out of Scope:** Conditionals.
+
+### Issue 10
+
+- **Title:** `feat: add conditional logic (if/then/else)`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #9
+- **Context:** Implement the `condition` block on mappings with `if`, `then`, `else`. The `if` is a JSONPath expression evaluating to a boolean.
+- **Acceptance Criteria:**
+  - `if` supports basic comparison expressions: `==`, `!=`, `>`, `<`, `>=`, `<=`, `!= null`, `== null`
+  - `then` and `else` can be either JSONPath references or literal values
+  - Result of selected branch undergoes normal type conversion / defaults
+  - Unit tests: each comparison, true branch, false branch, nested condition
+- **Technical Notes:** Confirm expression parser approach in implementation plan — likely a small custom parser or a vetted library. Document choice.
+- **Out of Scope:** Inline arithmetic expressions (#11).
+
+### Issue 11
+
+- **Title:** `feat: add inline expressions for math and comparisons`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #10
+- **Context:** Implement the `expression` field on mappings — supports arithmetic and comparison over JSONPath references.
+- **Acceptance Criteria:**
+  - Supports `+`, `-`, `*`, `/`, `%` arithmetic
+  - Supports `>`, `<`, `>=`, `<=`, `==`, `!=` comparisons returning boolean
+  - Operands can be JSONPath references or numeric literals
+  - Result type honors mapping's `type` field
+  - Unit tests cover each operator, mixed operations, JSONPath operands, missing operand handling
+- **Technical Notes:** Reuse / extend the parser from #10 if practical.
+
+### Issue 12
+
+- **Title:** `feat: add array transformation with item-level mapping`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #11
+- **Context:** Implement `type: array` with `itemMapping`. Maps each element of a source array using a per-item mapping spec.
+- **Acceptance Criteria:**
+  - Source must resolve to a JSON array (else error per `onTypeMismatch`)
+  - `itemMapping` defines target field shapes for each item
+  - Per-item mapping can use all previously implemented features (direct mapping, type conversion, transforms, conditionals, expressions)
+  - Output is a JSON array of mapped items
+  - Empty source array produces empty target array
+  - Unit tests: simple item mapping, item with expression (e.g., `lineTotal = qty * price`), nested objects within items, empty array
+- **Out of Scope:** Sorting (covered in #14).
+
+### Issue 13
+
+- **Title:** `feat: add static value injection`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #12
+- **Context:** Implement the `value` field on mappings — writes a static literal to target with no source lookup.
+- **Acceptance Criteria:**
+  - `value` accepts string, number, boolean, null
+  - Static value undergoes type conversion per `type` field
+  - Works at any target path depth
+  - Unit tests: each literal type, with type conversion, at nested target
+- **Out of Scope:** Templated values (not in scope for v1).
+
+### Issue 14
+
+- **Title:** `feat: add post-processing steps (removeEmptyObjects, sortArray)`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #13
+- **Context:** Implement the `postProcessing[]` array. Steps run sequentially after all mappings complete.
+- **Acceptance Criteria:**
+  - `removeEmptyObjects` — recursively removes any object with zero non-null/non-empty fields
+  - `sortArray` — sorts a target array by a `by` field (string comparison, ascending)
+  - Extensible registry pattern (`IPostProcessingStep` interface) for future additions
+  - Unit tests: each step, multiple steps in sequence, target path resolution for `sortArray`
+- **Out of Scope:** Other post-processing types.
+
+### Issue 15
+
+- **Title:** `feat: implement global error handling and ProblemDetails responses`
+- **Labels:** `status:blocked`, `type:feature`
+- **Blocked by:** #14
+- **Context:** Per `CLAUDE.md` "Coding Conventions," implement the global middleware exception handler and ensure all error paths return RFC 7807 ProblemDetails.
+- **Acceptance Criteria:**
+  - Middleware catches all unhandled exceptions
+  - Maps known exception types to status codes:
+    - `ConfigNotFoundException` → 404
+    - `ConfigParseException` → 500
+    - `TransformationException` → 422
+    - `ArgumentException` / model binding failures → 400
+    - Unhandled → 500
+  - Response body is RFC 7807 ProblemDetails with `type`, `title`, `status`, `detail`, plus a `correlationId` extension
+  - Logs full exception with `correlationId` at appropriate level (warn for 4xx, error for 5xx)
+  - No exception details leak into 500 responses (just `correlationId` for support reference)
+  - Unit tests cover each mapping
+  - Existing functions and tests still pass
+- **Out of Scope:** Retry policies, circuit breakers.
+
+### What this backlog demonstrates
+
+A few patterns worth lifting into your own backlog:
+
+- **Foundation stories first, in strict order.** Issues #1–#3 (scaffold, HTTP shell, config loader) establish everything subsequent stories depend on. They're small, mechanical, and unblock the rest of the project.
+- **The earliest possible "it transforms something" milestone.** Issue #4 is the smallest possible story that produces a working transformation. After it merges, you have a usable v0 — every subsequent story is additive.
+- **Independent feature stories use parallel structure.** Issues #5–#13 are mostly independent of each other (only the dependency on the engine in #4 binds them). Their structure is deliberately uniform: each adds one mapping-level feature with the same "context, criteria, tests" shape. Uniformity makes them faster to file, faster to pick up, and easier to review.
+- **Polish stories last, on purpose.** Issues #14 and #15 are post-processing and error handling — work that touches the whole engine and benefits from being done after the engine is feature-complete.
+- **Every story has explicit "Out of Scope."** This is the section that prevents scope creep mid-implementation. Without it, an agent picking up issue #4 might be tempted to add type conversion "while it's in there." With it, the agent stays bounded.
+- **Acceptance criteria are testable.** Every bullet under Acceptance Criteria can be turned into a checkbox or a test assertion. "Unit tests cover X, Y, Z" is a checkbox; "be well-tested" isn't.
+- **Technical Notes are short and pointed.** They flag the few decisions worth surfacing in the implementation plan (parser library choice, JSONPath library choice). Everything else is left to the agent and reviewed in the PR.
+
+The total time to file all 15 in one Cowork session: about 15 minutes. The total time to file them one-at-a-time across 15 sessions would have been an order of magnitude more, with worse dependency hygiene. This is the bulk-filing pattern from Phase 7.1 in concrete form.
