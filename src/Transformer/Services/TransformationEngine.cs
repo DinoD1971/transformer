@@ -57,7 +57,8 @@ public class TransformationEngine : ITransformationEngine
             }
 
             var afterType = resolvedValue is null ? null : ApplyType(resolvedValue.DeepClone(), mapping, mismatchMode, dateFormat);
-            var finalValue = ApplyTransform(afterType, mapping, dateFormat);
+            var afterTransform = ApplyTransform(afterType, mapping, dateFormat);
+            var finalValue = ApplyValidation(afterTransform, mapping);
 
             SetNestedValue(output, mapping.Target, finalValue);
         }
@@ -93,6 +94,45 @@ public class TransformationEngine : ITransformationEngine
 
         var fn = _registry.Resolve(mapping.Transform);
         return fn.Execute(value, mapping.Parameters, dateFormat);
+    }
+
+    private JsonNode? ApplyValidation(JsonNode? value, MappingConfig mapping)
+    {
+        if (mapping.Validate is null || string.IsNullOrEmpty(mapping.Validate.Regex) || value is null)
+            return value;
+
+        var str = value is JsonValue jv && jv.TryGetValue<string>(out var s) ? s : value.ToJsonString();
+        var regex = RegexCache.Get(mapping.Validate.Regex);
+
+        if (regex.IsMatch(str))
+            return value;
+
+        return (mapping.Validate.OnFail ?? "null").ToLowerInvariant() switch
+        {
+            "error" => throw new TransformationException(
+                $"Validation failed for target '{mapping.Target}': value '{str}' did not match regex '{mapping.Validate.Regex}'."),
+            "default" => ResolveValidationDefault(mapping),
+            _ => LogValidationFailureAndReturnNull(mapping.Target, str)
+        };
+    }
+
+    private JsonNode? ResolveValidationDefault(MappingConfig mapping)
+    {
+        var hasDefault = mapping.Default.HasValue && mapping.Default.Value.ValueKind != System.Text.Json.JsonValueKind.Undefined;
+        if (!hasDefault)
+        {
+            _logger.LogWarning("Validation failed for target '{Target}' and onFail is 'default' but no default is set — writing null.", mapping.Target);
+            return null;
+        }
+
+        _logger.LogWarning("Validation failed for target '{Target}' — writing default value.", mapping.Target);
+        return JsonNode.Parse(mapping.Default!.Value.GetRawText());
+    }
+
+    private JsonNode? LogValidationFailureAndReturnNull(string target, string value)
+    {
+        _logger.LogWarning("Validation failed for target '{Target}': value '{Value}' did not match regex — writing null.", target, value);
+        return null;
     }
 
     private JsonNode? LogCoercionAndReturnNull(string target, string? errorMessage)

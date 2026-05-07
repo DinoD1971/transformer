@@ -261,4 +261,99 @@ public class TransformationEngineTests
 
         Assert.Throws<TransformationException>(() => _engine.Transform(input, config));
     }
+
+    // --- validation ---
+
+    private static TransformConfig ValidationConfig(string source, string target, string regex, string onFail, string? defaultJson = null) =>
+        new()
+        {
+            Mappings =
+            [
+                new MappingConfig
+                {
+                    Source = source,
+                    Target = target,
+                    Validate = new Transformer.Models.ValidationConfig { Regex = regex, OnFail = onFail },
+                    Default = defaultJson is null ? null : JsonDocument.Parse(defaultJson).RootElement
+                }
+            ]
+        };
+
+    [Fact]
+    public void Transform_Validation_RegexMatch_WritesValue()
+    {
+        var input = ParseInput("""{"email":"user@example.com"}""");
+        var config = ValidationConfig("$.email", "email", @"^[^@\s]+@[^@\s]+\.[^@\s]+$", "null");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("user@example.com", result["email"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Validation_OnFail_Null_WritesNull()
+    {
+        var input = ParseInput("""{"email":"not-an-email"}""");
+        var config = ValidationConfig("$.email", "email", @"^[^@\s]+@[^@\s]+\.[^@\s]+$", "null");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("email"));
+        Assert.Null(result["email"]);
+    }
+
+    [Fact]
+    public void Transform_Validation_OnFail_Error_ThrowsTransformationException()
+    {
+        var input = ParseInput("""{"email":"not-an-email"}""");
+        var config = ValidationConfig("$.email", "email", @"^[^@\s]+@[^@\s]+\.[^@\s]+$", "error");
+
+        Assert.Throws<TransformationException>(() => _engine.Transform(input, config));
+    }
+
+    [Fact]
+    public void Transform_Validation_OnFail_Default_WithDefault_WritesDefault()
+    {
+        var input = ParseInput("""{"email":"not-an-email"}""");
+        var config = ValidationConfig("$.email", "email", @"^[^@\s]+@[^@\s]+\.[^@\s]+$", "default", "\"unknown@example.com\"");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("unknown@example.com", result["email"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Validation_OnFail_Default_NoDefault_WritesNull()
+    {
+        var input = ParseInput("""{"email":"not-an-email"}""");
+        var config = ValidationConfig("$.email", "email", @"^[^@\s]+@[^@\s]+\.[^@\s]+$", "default");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("email"));
+        Assert.Null(result["email"]);
+    }
+
+    [Fact]
+    public void Transform_Validation_NullValue_SkipsValidation()
+    {
+        var input = ParseInput("""{"email":null}""");
+        var config = new TransformConfig
+        {
+            Mappings =
+            [
+                new MappingConfig
+                {
+                    Source = "$.email",
+                    Target = "email",
+                    Validate = new Transformer.Models.ValidationConfig { Regex = @"^[^@\s]+@[^@\s]+\.[^@\s]+$", OnFail = "error" }
+                }
+            ]
+        };
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("email"));
+        Assert.Null(result["email"]);
+    }
 }

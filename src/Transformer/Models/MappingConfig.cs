@@ -10,4 +10,5 @@ public class MappingConfig
     public JsonElement? Default { get; set; }
     public string? Transform { get; set; }
     public JsonElement? Parameters { get; set; }
+    public ValidationConfig? Validate { get; set; }
 }
