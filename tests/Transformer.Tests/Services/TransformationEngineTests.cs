@@ -356,4 +356,63 @@ public class TransformationEngineTests
         Assert.True(result.ContainsKey("email"));
         Assert.Null(result["email"]);
     }
+
+    // --- lookup ---
+
+    private static TransformConfig LookupConfig(
+        string source, string target,
+        Dictionary<string, string> lookup,
+        string? onMissingField = null) =>
+        new()
+        {
+            Mappings = [new MappingConfig { Source = source, Target = target, Lookup = lookup }],
+            ErrorHandling = onMissingField is null ? null : new ErrorHandlingConfig { OnMissingField = onMissingField }
+        };
+
+    [Fact]
+    public void Transform_Lookup_Hit_WritesMappedValue()
+    {
+        var input = ParseInput("""{"status":"paid"}""");
+        var config = LookupConfig("$.status", "status",
+            new() { { "pending", "Pending" }, { "paid", "Completed" }, { "failed", "Cancelled" } });
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("Completed", result["status"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Lookup_Miss_OnMissingField_Ignore_WritesOriginalValue()
+    {
+        var input = ParseInput("""{"status":"unknown"}""");
+        var config = LookupConfig("$.status", "status",
+            new() { { "paid", "Completed" } }, "ignore");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.Equal("unknown", result["status"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Transform_Lookup_Miss_OnMissingField_Error_ThrowsTransformationException()
+    {
+        var input = ParseInput("""{"status":"unknown"}""");
+        var config = LookupConfig("$.status", "status",
+            new() { { "paid", "Completed" } }, "error");
+
+        Assert.Throws<TransformationException>(() => _engine.Transform(input, config));
+    }
+
+    [Fact]
+    public void Transform_Lookup_Miss_OnMissingField_Null_WritesNull()
+    {
+        var input = ParseInput("""{"status":"unknown"}""");
+        var config = LookupConfig("$.status", "status",
+            new() { { "paid", "Completed" } }, "null");
+
+        var result = _engine.Transform(input, config);
+
+        Assert.True(result.ContainsKey("status"));
+        Assert.Null(result["status"]);
+    }
 }
