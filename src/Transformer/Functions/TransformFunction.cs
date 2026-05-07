@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -21,11 +22,13 @@ public class TransformFunction
 
     private readonly ILogger<TransformFunction> _logger;
     private readonly IConfigLoader _configLoader;
+    private readonly ITransformationEngine _engine;
 
-    public TransformFunction(ILogger<TransformFunction> logger, IConfigLoader configLoader)
+    public TransformFunction(ILogger<TransformFunction> logger, IConfigLoader configLoader, ITransformationEngine engine)
     {
         _logger = logger;
         _configLoader = configLoader;
+        _engine = engine;
     }
 
     [Function("Transform")]
@@ -71,9 +74,10 @@ public class TransformFunction
         _logger.LogInformation("Transform request received. CorrelationId={CorrelationId} Domain={Domain} Operation={Operation} ConfigName={ConfigName}",
             envelope.CorrelationId, domain, operation, configName);
 
+        TransformConfig config;
         try
         {
-            await _configLoader.LoadAsync(domain, operation, configName, cancellationToken);
+            config = await _configLoader.LoadAsync(domain, operation, configName, cancellationToken);
         }
         catch (ConfigNotFoundException ex)
         {
@@ -94,6 +98,19 @@ public class TransformFunction
                 envelope.CorrelationId);
         }
 
+        JsonElement outputPayload;
+        if (config.Mappings.Count > 0 && envelope.Payload.HasValue)
+        {
+            var inputNode = JsonNode.Parse(envelope.Payload.Value.GetRawText()) as JsonObject
+                ?? new JsonObject();
+            var outputNode = _engine.Transform(inputNode, config);
+            outputPayload = JsonSerializer.Deserialize<JsonElement>(outputNode.ToJsonString());
+        }
+        else
+        {
+            outputPayload = envelope.Payload ?? default;
+        }
+
         var response = new TransformResponse
         {
             CorrelationId = envelope.CorrelationId,
@@ -101,7 +118,7 @@ public class TransformFunction
             Operation = operation,
             ConfigName = configName,
             ProcessedAt = DateTime.UtcNow,
-            Payload = envelope.Payload
+            Payload = outputPayload
         };
 
         _logger.LogInformation("Transform request completed. CorrelationId={CorrelationId}", envelope.CorrelationId);
