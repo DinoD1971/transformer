@@ -684,22 +684,26 @@ When changes are requested, switch back to Claude Code and run the *Claude Code 
 
 This back-and-forth can take more than one round. That's fine. It's working as designed.
 
-### 7.6 Why Cowork has to be the reviewer (the self-approval problem)
+### 7.6 Who actually approves the PR — and why the human merge is the gate
+GitHub branch protection, configured the way Phase 2.6 sets it up, requires one approving review from someone other than the PR author before a merge can complete. That rule is what prevents an agent from writing code and approving its own work — the failure mode this entire workflow is designed around.
 
-GitHub doesn't let you approve your own pull request. This is the silent feature that makes the dual-agent pattern necessary rather than just nice.
+In this setup, both Claude Code and Cowork operate against your GitHub identity via your PAT. That means GitHub sees both agents as "you" for authorship purposes. Claude Code authors the PR; Cowork can submit a review of the PR, but because GitHub sees it as authored by the same identity that opened the PR, the review doesn't satisfy the 'one approving review required' rule. So how does the merge actually happen?
 
-If you tried to do everything from one Claude Code session — write the code *and* approve the PR — GitHub would refuse the approval at the end. You'd be stuck. The only way to get an approving review on the PR is for it to come from a different GitHub identity than the one that authored the PR.
+The honest answer: the merge is the human's deliberate action, executed with admin bypass.
 
-In our setup:
+This is why Phase 2.6 leaves enforce_admins=false in the branch protection configuration. The rails are configured strictly — required PR, required approving review, required passing CI, required up-to-date branch — and the agents cannot bypass any of them on their own. But you, as the repository admin, can. And every merge in this workflow is you, deliberately, choosing to bypass the "1 required approving review" rule after Cowork's review has done the substantive work of checking the diff against the acceptance criteria and the conventions.
 
-- The PR is authored by **you** (because Claude Code uses `gh` authenticated as you to push and open the PR).
-- The review needs to come from a **different identity** — but Cowork's GitHub MCP also uses your PAT. So Cowork is also "you" from GitHub's perspective.
+That is not a workaround. That is the design.
 
-That sounds like a problem, but it isn't quite. GitHub's self-approval block is on the *PR author* approving their own PR, not on the user submitting two reviews from different sessions. Claude Code authored the PR via your account; Cowork submits a review via your account; GitHub treats the second action as "the PR author approving their own PR" only if it's literally a self-approve action, which Cowork isn't doing — it's submitting a *review*, which counts as a review from "you" but doesn't satisfy the "1 required approving review" rule on its own when authored by the same user.
+The mental model is: the rails train the agents, and the human signs off. The agents are constrained from shortcutting because they cannot self-approve and cannot bypass admin settings. The human retains the irreversible decision because the merge action is, by intent, the moment of human judgment. Cowork's review is advisory — extremely thorough advisory, grounded in the acceptance criteria and CLAUDE.md, but advisory. Your click on the Merge button is the decision.
 
-In practice: you click the **Merge** button. The PR is open, CI is green, Cowork has approved (or, more precisely, has done a thorough review and recommended merging), and you make the call. The merge action is yours, the human's. The agents don't merge.
+*In a team setting, the cleaner architecture is a separate GitHub identity for the reviewer agent (a bot account with its own PAT, or a human collaborator) so the approving review satisfies branch protection without bypass. For a solo-developer setup running both agents through your own identity, admin bypass is the simplest model that holds together. The principle below is the same in both cases — the rails train the agents, the human signs off.*
 
-This is the right shape. The agents do the work and the analysis; you make the irreversible call. If you're tempted to script the merge step too, you've slipped into the single-agent failure mode this whole pattern is trying to avoid.
+This shape matters for several reasons:
+
+- It puts the irreversible action in human hands. The agents do the generation and the analysis; the human does the merge. If you ever found yourself wanting to script the merge step too, you'd have slipped back into the single-agent failure mode this whole pattern is built to avoid.
+- It makes Cowork's review honest. Because Cowork knows its review is advisory rather than dispositive, it has no incentive to soften feedback to get a merge through. It can flag what it flags. You decide what to do with the flags.
+- It keeps the audit trail intact. Every merge in the repo's history shows your username and the admin-bypass annotation. There's no ambiguity later about who decided what. If you ever need to defend a merge — to yourself in retrospect, to a future teammate, to a client — the record is clean.
 
 ### 7.7 Merge, then post-merge cleanup
 
@@ -750,7 +754,7 @@ If you need to add follow-up work, file (or pick up) a new story and create a fr
 - **Don't push to a merged feature branch.** Open a new branch from main. The PR is closed; new commits are stranded.
 - **Clarification rounds aren't failures.** If Claude Code flags ambiguity rather than guessing, that's the workflow doing what it's supposed to do. The cost of the clarification round is much lower than the cost of unwinding a wrong-direction PR.
 - **Don't merge with red CI.** Ever. If CI is failing, the PR isn't ready, period. Branch protection should make this physically impossible, but if you've turned that off, hold yourself to the rule.
-- **Cowork's "review" isn't an approving review in the GitHub branch-protection sense if it doesn't pass through a separate identity.** In the worked example here, Cowork is acting as your trusted reviewer. The merge button is the gate; treat the review as advisory and the click as the decision.
+- **Cowork's review is advisory, not dispositive.**  The merge action is yours, and it's an admin bypass by design. If you ever scale to a team, replace the bypass with a real second identity (a bot account or a human collaborator) so the rails enforce themselves."
 
 ---
 
